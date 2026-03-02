@@ -50,8 +50,8 @@ from dataclasses import dataclass
 # Variable assignment:  $name = <value>
 _VAR_ASSIGN = re.compile(r'^\$(\w+)\s*=\s*(.+)$')
 
-# Setting assignment:   timeout = <value>
-_SETTING_ASSIGN = re.compile(r'^(timeout)\s*=\s*(.+)$')
+# Setting assignment:   timeout = <value>  /  slow = <value>
+_SETTING_ASSIGN = re.compile(r'^(timeout|slow)\s*=\s*(.+)$')
 
 # Function call:        name(...)  — name ends at first '('
 _FUNC_NAME = re.compile(r'^([a-z][a-z_0-9]*)\(')
@@ -62,22 +62,64 @@ _METHOD_CALL = re.compile(r'\.([a-z][a-z_0-9]*)\(')
 # Optional trailing index inside a chain selector:  SELECTOR[n]
 _TRAILING_INDEX = re.compile(r'^(.*)\[(\d+)\]$')
 
+# Function definition:  func name($p1, $p2) {
+_FUNC_DEF = re.compile(r'^func\s+([a-z][a-z_0-9]*)\s*\(([^)]*)\)\s*\{$')
+
 
 @dataclass
 class Line:
     number: int
-    command: str   # function name, '__assign__', or '__element__'
+    command: str   # function name, '__assign__', '__element__', or '__func_def__'
     args: list[str]
     raw: str
+    body: 'list[Line] | None' = None
 
 
 def tokenize(source: str) -> list[Line]:
     source = _strip_comments(source)
+    raw_lines = list(enumerate(source.splitlines(), start=1))
     lines: list[Line] = []
-    for lineno, raw in enumerate(source.splitlines(), start=1):
+    i = 0
+    while i < len(raw_lines):
+        lineno, raw = raw_lines[i]
         stripped = raw.strip()
+        i += 1
         if not stripped or _is_comment(stripped):
             continue
+
+        # Function definition: func name($p1, $p2) {
+        m = _FUNC_DEF.match(stripped)
+        if m:
+            func_name = m.group(1)
+            params_str = m.group(2).strip()
+            params = [p.strip() for p in params_str.split(',') if p.strip()] if params_str else []
+            for p in params:
+                if not p.startswith('$'):
+                    raise SyntaxError(
+                        f'Line {lineno}: function parameter must start with $, got {p!r}'
+                    )
+            # Collect body lines until the closing '}'
+            body_lines: list[Line] = []
+            found_close = False
+            while i < len(raw_lines):
+                blineno, braw = raw_lines[i]
+                bstripped = braw.strip()
+                i += 1
+                if bstripped == '}':
+                    found_close = True
+                    break
+                if not bstripped or _is_comment(bstripped):
+                    continue
+                body_lines.append(_parse_line(blineno, bstripped, braw))
+            if not found_close:
+                raise SyntaxError(
+                    f'Line {lineno}: function {func_name!r} — missing closing }}'
+                )
+            lines.append(
+                Line(lineno, '__func_def__', [func_name] + params, raw, body=body_lines)
+            )
+            continue
+
         lines.append(_parse_line(lineno, stripped, raw))
     return lines
 

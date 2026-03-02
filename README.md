@@ -150,18 +150,47 @@ Using an undefined variable raises an error immediately.
 
 ### Settings
 
-Settings use bare `name = value` syntax — **no `$` prefix**. The only supported setting is `timeout`.
+Settings use bare `name = value` syntax — **no `$` prefix**. Both can be changed at any point in a script.
 
 #### `timeout`
 
-How long bdr waits for elements to appear before failing, in milliseconds.
+How long bdr waits for an element to appear before failing, in milliseconds.
 
 ```
-timeout = 10000    # 10 seconds
-timeout = 5000     # tighter, faster failures
+timeout = 10000    // 10 seconds — wait longer for slow pages
+timeout = 5000     // 5 seconds  — fail faster during development
 ```
 
-Default is `30000` ms. Can be changed at any point in a script. The `--timeout` CLI flag sets the initial value.
+Default is `30000` ms (30 seconds). The `--timeout` CLI flag sets the initial value.
+
+#### `slow`
+
+Pause between every action, in seconds. This is a buffer applied automatically after each command — no need to manually insert `wait()` calls throughout your script.
+
+```
+slow = 0.5     // half-second gap between every action
+slow = 1       // one full second — good for watching the browser step through
+slow = 0       // no pause (default)
+```
+
+Default is `0` (no pause). Can be set or changed at any point in a script — only commands that follow the setting are affected.
+
+```
+// login.bdr
+timeout = 5000
+slow = 0.3          // 300ms buffer between every action
+
+load("localhost:3000")
+#email.fill("me@example.com")     // waits 0.3s after this
+#password.fill("hunter2")         // waits 0.3s after this
+#submit.click()                   // waits 0.3s after this
+```
+
+The `--slow` CLI flag sets the initial value, which the script can override:
+
+```bash
+bdr run script.bdr --slow 0.5    // 500ms between commands
+```
 
 ---
 
@@ -191,7 +220,7 @@ refresh()
 
 #search.type("playwright")             # types character by character
 
-#country.select("United States")       # pick a <select> option by label
+#country.select("United States")       # pick a <select> option by visible label text
 
 [name="agree"].check()                 # check a checkbox
 [name="agree"].uncheck()               # uncheck a checkbox
@@ -200,6 +229,83 @@ refresh()
 #first-field.focus()
 
 .cta-button.scroll_to()                # scroll element into view
+```
+
+---
+
+### Dropdowns (`<select>` elements)
+
+There are three ways to choose an option from a `<select>` dropdown, depending on what you know about the element.
+
+#### `.select("label")` — by visible text *(most common)*
+
+Picks the option whose text the user can read in the dropdown. Use this when you know what the page shows.
+
+```
+#country.select("United States")
+#state.select("California")
+#size.select("Large")
+
+// works with variables and random generators too
+$country = "Canada"
+#country.select($country)
+#country.select(random_country())
+```
+
+#### `.select_value("value")` — by HTML value attribute
+
+Picks the option whose `value=` attribute matches. Use this when the visible label and the underlying value differ — for example a dropdown that shows `"United States"` but has `value="us"` in the HTML.
+
+```html
+<!-- example HTML -->
+<select id="country">
+  <option value="us">United States</option>
+  <option value="ca">Canada</option>
+  <option value="gb">United Kingdom</option>
+</select>
+```
+
+```
+#country.select_value("us")    // selects "United States"
+#country.select_value("ca")    // selects "Canada"
+```
+
+#### `.select_index(n)` — by position
+
+Picks the option at position `n`, counting from 0. Use this when you don't know the label or value, or when you just want the first/last option.
+
+```
+#size.select_index(0)    // first option
+#size.select_index(1)    // second option
+#size.select_index(2)    // third option
+```
+
+#### Choosing which to use
+
+| You know… | Use |
+|---|---|
+| The text shown in the dropdown | `.select("label")` |
+| The HTML `value=` attribute | `.select_value("val")` |
+| The position in the list | `.select_index(n)` |
+
+If `.select()` fails, inspect the HTML to check whether the visible label matches the `value=` attribute — they are often different (e.g. label `"United States"` with `value="US"`). Switch to `.select_value()` in that case.
+
+#### Full signup form example with dropdowns
+
+```
+load("https://example.com/signup")
+
+#full-name.fill(random_name())
+#email.fill(random_email())
+#password.fill(random_password(16))
+
+// dropdowns
+#country.select("United States")
+#state.select(random_state())            // pick a random US state by name
+#state-abbr.select_value(random_state_abbr())   // or by abbreviation value
+#shirt-size.select_index(0)             // just pick the first size option
+
+#submit.click()
 ```
 
 ---
@@ -337,6 +443,186 @@ log("All tests passed")
 
 ---
 
+### Functions
+
+Functions let you define reusable blocks of commands and call them anywhere in your script.
+
+```
+func login($user, $pass) {
+  #email.fill($user)
+  #password.fill($pass)
+  #submit.click()
+  #dashboard.wait()
+}
+
+load("https://example.com/login")
+login("me@example.com", "hunter2")
+```
+
+#### Defining a function
+
+```
+func name($param1, $param2) {
+  // body — any valid bdr commands
+  SELECTOR.action($param1)
+  command($param2)
+}
+```
+
+- The function name uses lowercase letters, digits, and underscores.
+- Parameters start with `$` and are available as local variables inside the body.
+- The opening `{` must be on the same line as `func`.
+- Functions can be defined anywhere in a script and called before or after the definition.
+
+#### Calling a function
+
+Functions are called exactly like built-in commands:
+
+```
+login("me@example.com", "hunter2")
+fill_search_form($query)
+do_checkout()
+```
+
+Arguments can be literals, variables, or random generators:
+
+```
+login(random_email(), random_password(12))
+submit_form($url, env("API_KEY"))
+```
+
+#### Function capabilities and limits
+
+- `func` supports positional parameters only.
+- Functions do not return values; they run commands for side effects.
+- Nested function definitions are not supported.
+- Calling with the wrong argument count fails with a clear line-numbered error.
+- `bdr check your-script.bdr` validates function signatures across files loaded by `exec(...)`.
+
+#### Crafting functions (step-by-step)
+
+Use this pattern when writing reusable flows:
+
+1. Create a focused function name that describes one workflow step.
+2. Add all dynamic inputs as `$params`.
+3. Use those params directly in element actions and commands.
+4. Keep the body to one responsibility (login, search, checkout step).
+5. Put shared functions in a separate file and `exec(...)` it before calls.
+6. Run `bdr check` to validate function signatures before browser execution.
+
+Copy/paste starter:
+
+```
+// shared/actions.bdr
+func do_action($input1, $input2) {
+  #first-field.fill($input1)
+  #second-field.fill($input2)
+  #submit.click()
+}
+
+// test.bdr
+exec("./shared/actions.bdr")
+do_action("value one", "value two")
+```
+
+```
+// shared/auth.bdr
+func login($email, $password) {
+  #email.fill($email)
+  #password.fill($password)
+  #submit.click()
+}
+```
+
+```
+// smoke.bdr
+exec("./shared/auth.bdr")
+load("https://example.com/login")
+login(env("EMAIL"), env("PASSWORD"))
+```
+
+#### Local scope
+
+Parameters are local to the function — they do not affect variables in the calling script. Variables set inside a function body are also local.
+
+```
+$user = "alice"
+
+func greet($name) {
+  log("Hello,", $name)
+  $user = "overridden"    // only changes the local copy
+}
+
+greet("bob")
+log($user)                // still prints "alice"
+```
+
+Settings (`timeout`, `slow`) are **not** scoped — changing them inside a function affects the rest of the session.
+
+#### Sharing functions across scripts
+
+Define functions in a shared file and `exec` it before calling them:
+
+```
+// shared/helpers.bdr
+func login($user, $pass) {
+  #email.fill($user)
+  #password.fill($pass)
+  #submit.click()
+}
+
+func logout() {
+  #user-menu.click()
+  .logout-btn.click()
+}
+```
+
+```
+// test.bdr
+exec("./shared/helpers.bdr")
+
+load("https://example.com")
+login(env("EMAIL"), env("PASSWORD"))
+// ... test steps ...
+logout()
+```
+
+#### Full example — parameterized sign-up flow
+
+```
+// multi-user.bdr
+timeout = 15000
+
+func sign_up($email, $pass) {
+  load("https://example.com/signup")
+  #email.fill($email)
+  #password.fill($pass)
+  #confirm.fill($pass)
+  #signup-btn.click()
+  #dashboard.wait()
+  log("Signed up as", $email)
+  screenshot("signed-up.png")
+}
+
+func sign_in($email, $pass) {
+  load("https://example.com/login")
+  #email.fill($email)
+  #password.fill($pass)
+  #login-btn.click()
+  #dashboard.wait()
+}
+
+// create two accounts with random credentials
+sign_up(random_email(), random_password(12))
+sign_up(random_email(), random_password(12))
+
+// sign in as a specific user
+sign_in("alice@example.com", "secret123")
+log("Done")
+```
+
+---
+
 ### Screenshots
 
 By default all screenshots go to `~/.bdr/screenshots/`.
@@ -373,6 +659,182 @@ log("Testing as", $user)    # variables expand to their values
 
 ---
 
+## Random data
+
+Any argument that accepts a string also accepts a `random_*()` call. The value is generated fresh each time the script runs.
+
+```
+// store in a variable
+$email = random_email()
+$pass  = random_password(16)
+
+// use inline, directly in a chain
+#email.fill(random_email())
+#password.fill(random_password(16))
+#phone.fill(random_phone())
+```
+
+---
+
+### Identity
+
+| Call | Example output |
+|---|---|
+| `random_name()` | `Emma Davis` |
+| `random_first_name()` | `Emma` |
+| `random_last_name()` | `Davis` |
+| `random_username()` | `cnfyoqni` |
+| `random_username(12)` | `ja915c1rbpaf` |
+| `random_email()` | `p2pbck@demo.app` |
+| `random_company()` | `Orbit Software` |
+
+---
+
+### Passwords and strings
+
+| Call | Example output | Notes |
+|---|---|---|
+| `random_password()` | `MkMA&n8!L9` | 12 chars, mixed case + digits + symbols |
+| `random_password(20)` | `#Lzi6UBFdy#!4r%&9^%O` | custom length |
+| `random_string()` | `EeCDNYaL1ydr` | 12 chars, letters + digits |
+| `random_string(8)` | `63InZEQc` | custom length |
+| `random_alpha(10)` | `DHUKmUUTAE` | letters only |
+| `random_digits(6)` | `707858` | digits only — PIN codes, verification codes |
+| `random_hex(16)` | `97f4a83451690d9d` | hex chars 0-9a-f — tokens, hashes |
+| `random_uuid()` | `1ff62b67-11b7-47a1-b2bd-edbf22a3508f` | UUID v4 |
+
+`random_password()` always contains at least one uppercase letter, one digit, and one symbol.
+
+---
+
+### Numbers
+
+| Call | Example output |
+|---|---|
+| `random_number()` | `3470` — 0 to 9999 |
+| `random_number(100)` | `64` — 0 to max |
+| `random_number(50, 99)` | `66` — min to max |
+
+---
+
+### Phone numbers
+
+| Call | Example output |
+|---|---|
+| `random_phone()` | `212-257-3054` |
+| `random_phone_intl()` | `+1 697-822-9805` |
+
+---
+
+### Addresses
+
+| Call | Example output |
+|---|---|
+| `random_address()` | `4005 Washington Avenue` |
+| `random_city()` | `Bedford` |
+| `random_state()` | `Ohio` |
+| `random_state_abbr()` | `CO` |
+| `random_zip()` | `69033` |
+| `random_country()` | `Netherlands` |
+
+---
+
+### Dates
+
+| Call | Example output | Format |
+|---|---|---|
+| `random_date()` | `2016-10-15` | `YYYY-MM-DD` — random from last 10 years |
+| `random_date_past()` | `05/07/2013` | `MM/DD/YYYY` — random from last 20 years |
+| `random_date_future()` | `07/24/2026` | `MM/DD/YYYY` — random up to 5 years out |
+| `random_card_expiry()` | `06/29` | `MM/YY` — always in the future |
+
+---
+
+### Payment
+
+| Call | Example output | Notes |
+|---|---|---|
+| `random_credit_card()` | `4580481246958542` | Luhn-valid 16-digit Visa-format number |
+| `random_cvv()` | `970` | 3-digit security code |
+
+These are structurally valid numbers suitable for test environments that validate card format but do not charge real money.
+
+---
+
+### Web and network
+
+| Call | Example output |
+|---|---|
+| `random_url()` | `https://sandbox-bth1.example.com` |
+| `random_ip()` | `81.131.71.53` |
+| `random_color()` | `#fe4585` |
+
+---
+
+### Text
+
+| Call | Example output |
+|---|---|
+| `random_word()` | `prism` |
+| `random_sentence()` | `The quick fox jumps over the lazy dog.` |
+
+---
+
+### Full signup form example
+
+```
+// signup.bdr
+load("https://example.com/signup")
+
+/* generate a complete fake identity */
+$name  = random_name()
+$email = random_email()
+$pass  = random_password(16)
+$phone = random_phone()
+
+#full-name.fill($name)
+#email.fill($email)
+#password.fill($pass)
+#confirm-password.fill($pass)
+#phone.fill($phone)
+#address.fill(random_address())
+#city.fill(random_city())
+#state.fill(random_state())
+#zip.fill(random_zip())
+#country.fill(random_country())
+#dob.fill(random_date_past())
+
+#submit.click()
+#welcome-banner.wait()
+log("Signed up as", $name, "—", $email)
+screenshot("signup-done.png")
+```
+
+---
+
+### Checkout form example
+
+```
+// checkout.bdr
+load("https://example.com/checkout")
+
+#card-number.fill(random_credit_card())
+#card-expiry.fill(random_card_expiry())
+#card-cvv.fill(random_cvv())
+#card-name.fill(random_name())
+
+#billing-address.fill(random_address())
+#billing-city.fill(random_city())
+#billing-state.fill(random_state_abbr())
+#billing-zip.fill(random_zip())
+
+#place-order.click()
+#order-confirmation.wait()
+screenshot("checkout-done.png")
+```
+
+---
+
 ## Worked examples
 
 ### Login flow
@@ -400,6 +862,16 @@ exec("./login.bdr")
 exec("./checkout.bdr")
 
 log("All tests passed")
+```
+
+### Reusable functions
+
+```
+// examples/functions.bdr
+exec("./helpers.bdr")
+load("https://example.com/login")
+login("me@example.com", "hunter2")
+search_and_assert("playwright", "Playwright")
 ```
 
 ### Working with lists
@@ -478,6 +950,20 @@ Create a new script from a starter template.
 
 ```bash
 bdr new my-script.bdr
+```
+
+### `bdr seed`
+
+Plant (or refresh) an LLM-oriented seed file in the current project.
+
+The seed embeds the CLI version that generated it. If an existing seed version
+does not match the running CLI version, `bdr seed` replaces it and logs the
+version transition.
+
+```bash
+bdr seed
+bdr seed --path AGENT_SEED.md
+bdr seed --force
 ```
 
 ### `bdr extract`

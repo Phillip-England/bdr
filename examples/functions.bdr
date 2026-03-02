@@ -1,0 +1,13 @@
+// functions.bdr
+// Demonstrates defining reusable workflows in helpers.bdr and calling them.
+
+timeout = 15000
+exec("./helpers.bdr")
+
+load("https://example.com/login")
+login("me@example.com", "hunter2")
+
+load("https://www.wikipedia.org")
+search_and_assert("playwright", "Playwright")
+
+log("Function example complete")

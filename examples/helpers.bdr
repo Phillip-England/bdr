@@ -1,0 +1,14 @@
+// helpers.bdr
+// Shared function library for other scripts in this folder.
+
+func login($email, $password) {
+  #email.fill($email)
+  #password.fill($password)
+  #submit.click()
+}
+
+func search_and_assert($query, $expected_text) {
+  [name="q"].fill($query)
+  press("Enter")
+  .result[0].assert_text($expected_text)
+}

@@ -13,6 +13,7 @@ import click
 from . import __version__
 from .interpreter import BdrError, DEFAULT_SCREENSHOT_DIR
 from .runner import check_script, run_script
+from .seed import extract_seed_version, render_seed
 
 
 def _fail(heading: str, body: str) -> None:
@@ -34,6 +35,7 @@ def main() -> None:
       bdr run script.bdr         Execute a script
       bdr check script.bdr       Validate without running a browser
       bdr new script.bdr         Create a new script from a template
+      bdr seed                   Plant/update an LLM seed file in this project
       bdr extract URL SELECTOR   Generate a .el selector file from a live page
       bdr setup                  Install Playwright browsers
       bdr screenshots            List captured screenshots
@@ -113,32 +115,87 @@ def new(name: str) -> None:
         raise click.ClickException(f"File already exists: {dest}")
 
     template = f"""\
-# {dest.name}
-# Created with: bdr new {dest.name}
+// {dest.name}
+// Created with: bdr new {dest.name}
 
-# How long to wait for elements before failing (milliseconds).
+// How long to wait for elements before failing (milliseconds).
 timeout = 15000
 
-# Where to save screenshots — defaults to ~/.bdr/screenshots/
-# screenshot_dir("./screenshots")
+// Pause between every action in seconds (0 = no pause).
+// slow = 0.3
 
-# Define variables.
-# $url = "https://example.com"
-# $user = "me@example.com"
+// Where to save screenshots — defaults to ~/.bdr/screenshots/
+// screenshot_dir("./screenshots")
+
+// Define variables.
+// $url = "https://example.com"
+// $user = "me@example.com"
 
 load("https://example.com")
 
-# Interact with elements using CSS selector chains:
-# .selector.click()
-# #id.fill("value")
-# .selector[0].click()       # pick the first matching element
-# assert_title("Expected title")
-# screenshot("result.png")
+// Interact with elements using CSS selector chains:
+// .selector.click()
+// #id.fill("value")
+// .selector[0].click()       // pick the first matching element
+// assert_title("Expected title")
+// screenshot("result.png")
 
 log("Script complete")
 """
     dest.write_text(template, encoding="utf-8")
     click.echo(f"  created: {dest}")
+
+
+# ---------------------------------------------------------------------------
+# seed
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option(
+    "--path",
+    "seed_path",
+    default="BDR_SEED.md",
+    show_default=True,
+    metavar="FILE",
+    help="Where to write the seed file.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Rewrite the seed even when the version already matches.",
+)
+def seed(seed_path: str, force: bool) -> None:
+    """Plant or refresh an LLM seed file with version-aware updates."""
+    target = pathlib.Path(seed_path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    new_content = render_seed(__version__)
+
+    if not target.exists():
+        target.write_text(new_content, encoding="utf-8")
+        click.echo(f"  planted seed: {target}")
+        click.echo(f"  version: {__version__}")
+        return
+
+    existing = target.read_text(encoding="utf-8")
+    existing_version = extract_seed_version(existing)
+
+    if not force and existing_version == __version__:
+        click.echo(f"  seed up-to-date: {target}")
+        click.echo(f"  version: {__version__}")
+        return
+
+    target.write_text(new_content, encoding="utf-8")
+    if force:
+        click.echo(f"  refreshed seed (forced): {target}")
+        click.echo(f"  version: {__version__}")
+    elif existing_version:
+        click.echo(f"  updated seed: {target}")
+        click.echo(f"  version: {existing_version} -> {__version__}")
+    else:
+        click.echo(f"  updated seed: {target}")
+        click.echo(f"  version: unknown -> {__version__}")
 
 
 # ---------------------------------------------------------------------------
