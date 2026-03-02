@@ -1,0 +1,11 @@
+// wikipedia-search.bdr
+// Searches Wikipedia and asserts we land on the right article.
+
+load("https://www.wikipedia.org")
+#searchInput.fill("Playwright (software)")
+press("Enter")
+
+#firstHeading.wait()                       // wait for the article to load
+#firstHeading.assert_text("Playwright")
+screenshot("wikipedia-result.png")
+log("Search complete")

@@ -1,0 +1,18 @@
+// login.bdr
+// Example login flow — replace the URL and selectors with your app's.
+
+$url = "https://example.com/login"
+$email = "user@example.com"
+$password = "hunter2"
+
+load($url)
+
+/* fill in credentials and submit */
+#email.fill($email)
+#password.fill($password)
+#submit.click()
+
+#dashboard.wait()         // wait for redirect to complete
+assert_title("Dashboard")
+screenshot("after-login.png")
+log("Login complete for", $email)

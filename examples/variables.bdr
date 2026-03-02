@@ -1,0 +1,23 @@
+// variables.bdr
+// Demonstrates variables, timeout configuration, and CSS selector chains.
+
+timeout = 10000   // fail fast — 10 second element timeout
+
+$url = "https://example.com/login"
+$email = "user@example.com"
+$password = "hunter2"
+
+load($url)
+
+/*
+  bdr waits automatically for each element before interacting —
+  no need to call .wait() before every .fill() or .click().
+*/
+#email.fill($email)
+#password.fill($password)
+#submit.click()
+
+#dashboard.wait()
+assert_title("Dashboard")
+screenshot("after-login.png")
+log("Login complete for", $email)

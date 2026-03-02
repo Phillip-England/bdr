@@ -1,0 +1,13 @@
+# suite.bdr
+# Run multiple scripts sequentially from one entry point.
+#
+# exec'd scripts share the same browser session, variables, and timeout —
+# so state set here carries into every child script.
+
+timeout = 15000
+$base_url = "https://example.com"
+
+exec("./login.bdr")
+exec("./wikipedia-search.bdr")
+
+log("All scripts passed")
