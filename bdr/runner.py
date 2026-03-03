@@ -38,7 +38,7 @@ def _load_dotenv(script_dir: pathlib.Path) -> dict[str, str]:
 # Commands and their minimum required argument counts — kept in sync with Interpreter.
 _KNOWN_COMMANDS: dict[str, int] = {
     # navigation
-    "load": 1, "back": 0, "forward": 0, "refresh": 0,
+    "load": 1, "load_clipboard": 0, "back": 0, "forward": 0, "refresh": 0,
     # keyboard / page-level interaction
     "press": 1, "scroll_up": 0, "scroll_down": 0,
     # waiting (page / text level)
@@ -52,6 +52,9 @@ _KNOWN_COMMANDS: dict[str, int] = {
     # element chain syntax (produced by the lexer for SELECTOR[n].action(args))
     # args: [selector, index, action, *action_args] — minimum 3
     "__element__": 3,
+    # semantic locator chain: text(...).action() / role(...).action() / etc.
+    # args: [type, n, *locator_args, index, action, *action_args] — minimum 4
+    "__locator__": 4,
     # assignment (produced by the lexer for $var = ... and timeout = ...)
     "__assign__": 2,
     # function definition (produced by the lexer for func name($p) { ... })
@@ -97,6 +100,20 @@ def _validate_line(
             errors.append(
                 f"Line {line.number}: {prefix}unknown element action '.{action}()'"
             )
+        return errors
+
+    if line.command == "__locator__" and len(line.args) >= 4:
+        try:
+            n = int(line.args[1])
+            action_idx = 2 + n + 1  # type, n, *locator_args, index, action
+            if action_idx < len(line.args):
+                action = line.args[action_idx]
+                if action not in _ELEMENT_ACTIONS:
+                    errors.append(
+                        f"Line {line.number}: {prefix}unknown element action '.{action}()'"
+                    )
+        except (ValueError, IndexError):
+            errors.append(f"Line {line.number}: {prefix}malformed locator chain")
         return errors
 
     return errors

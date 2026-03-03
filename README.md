@@ -200,11 +200,15 @@ bdr run script.bdr --slow 0.5    // 500ms between commands
 load("https://example.com")
 load("localhost:3000")          # http:// is added automatically
 load($url)                      # works with variables
+load_clipboard()                # reads URL from your system clipboard
 
 back()
 forward()
 refresh()
 ```
+
+`load_clipboard()` accepts the same URL formats as `load()`. If the clipboard has
+`localhost:3000`, bdr navigates to `http://localhost:3000`.
 
 ---
 

@@ -65,6 +65,18 @@ _TRAILING_INDEX = re.compile(r'^(.*)\[(\d+)\]$')
 # Function definition:  func name($p1, $p2) {
 _FUNC_DEF = re.compile(r'^func\s+([a-z][a-z_0-9]*)\s*\(([^)]*)\)\s*\{$')
 
+# Semantic locator chain: text("...").action()  /  role("button", "Name").action()
+# Supported locator types:
+#   text("content")          — get_by_text()
+#   role("role", "name")     — get_by_role()
+#   label("text")            — get_by_label()
+#   placeholder("text")      — get_by_placeholder()
+#   testid("id")             — get_by_test_id()
+#   alt("text")              — get_by_alt_text()
+#   title("text")            — get_by_title()
+#   xpath("expr")            — locator("xpath=...")
+_LOCATOR_START = re.compile(r'^(text|role|label|placeholder|testid|alt|title|xpath)\s*\(')
+
 
 @dataclass
 class Line:
@@ -224,6 +236,12 @@ def _parse_line(lineno: int, stripped: str, raw: str) -> Line:
         value = _unquote(lineno, m.group(2).strip())
         return Line(lineno, '__assign__', [m.group(1), value], raw)
 
+    # Semantic locator chain: text("...").action() / role("button", "Name").action()
+    # Checked BEFORE function calls so text(...).click() isn't swallowed as a bare call.
+    result = _try_parse_locator_chain(lineno, stripped, raw)
+    if result is not None:
+        return result
+
     # Function call: name(args...)
     m = _FUNC_NAME.match(stripped)
     if m:
@@ -247,6 +265,60 @@ def _parse_line(lineno: int, stripped: str, raw: str) -> Line:
         f'use `$name = value` for variables, `command(...)` for calls, '
         f'or `selector.action(...)` for element chains → {raw!r}'
     )
+
+
+def _try_parse_locator_chain(lineno: int, stripped: str, raw: str) -> 'Line | None':
+    """Attempt to parse a semantic locator chain:
+
+        text("New Candidate").click()
+        role("button", "New Candidate").click()
+        xpath("//button[@data-target='new-candidate']").click()
+        text("Submit")[0].click()           # optional nth index
+
+    Returns a Line with command '__locator__' if successful, None otherwise.
+    Args layout: [locator_type, n_locator_args, *locator_args, index, action, *action_args]
+      - locator_type:   'text' | 'role' | 'label' | 'placeholder' | 'testid' | 'alt' | 'title' | 'xpath'
+      - n_locator_args: str(int) count of locator args that follow
+      - locator_args:   the arguments passed to the locator function
+      - index:          str(int) nth index, '-1' when not specified
+      - action:         method name (click, fill, assert_visible, …)
+      - action_args:    any arguments passed to the action
+    """
+    m = _LOCATOR_START.match(stripped)
+    if not m:
+        return None
+
+    locator_type = m.group(1)
+    paren_pos = stripped.index('(')
+    locator_args_str, remainder = _extract_parens(lineno, stripped[paren_pos:], raw)
+    locator_args = _parse_args(lineno, locator_args_str)
+    remainder = remainder.lstrip()
+
+    # Optional nth index: [n]
+    idx_m = re.match(r'^\[(\d+)\](.*)', remainder)
+    if idx_m:
+        index = int(idx_m.group(1))
+        remainder = idx_m.group(2).lstrip()
+    else:
+        index = -1
+
+    # Required: .action(args)  — if absent this isn't a locator chain, fall through.
+    action_m = re.match(r'^\.([a-z][a-z_0-9]*)\(', remainder)
+    if not action_m:
+        return None
+
+    action = action_m.group(1)
+    action_paren_pos = remainder.index('(')
+    action_args_str, trailing = _extract_parens(lineno, remainder[action_paren_pos:], raw)
+    if trailing.strip():
+        raise SyntaxError(
+            f'Line {lineno}: unexpected characters after closing \')\' → {raw!r}'
+        )
+
+    action_args = _parse_args(lineno, action_args_str)
+    n = str(len(locator_args))
+    args = [locator_type, n] + locator_args + [str(index), action] + action_args
+    return Line(lineno, '__locator__', args, raw)
 
 
 def _try_parse_chain(lineno: int, stripped: str, raw: str) -> 'Line | None':

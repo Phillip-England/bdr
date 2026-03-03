@@ -1,0 +1,193 @@
+// targeting.bdr — every way to reach the "New Candidate" button without an ID
+//
+// Source element:
+//   <button class="hub-btn qa qa-btn" type="button"
+//           data-target="new-candidate" data-e2e="button-3"
+//           data-e2e-id="e2e-admin-locations-49350-candidates-btn-new-candidate">
+//     <strong>New Candidate</strong>
+//     <span>Create candidate profiles quickly.</span>
+//   </button>
+//
+// Run one group at a time — each block shows a different family of techniques.
+
+load("localhost:3000")
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. SINGLE CLASS
+//    Target any one of the three CSS classes on the button.
+// ─────────────────────────────────────────────────────────────────────────────
+.hub-btn.assert_exists()
+.qa.assert_exists()
+.qa-btn.assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. COMBINED CLASSES  (most specific single-selector without an ID)
+//    All three classes must be present on the same element.
+// ─────────────────────────────────────────────────────────────────────────────
+.hub-btn.qa.qa-btn.assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. TAG + CLASS
+//    Narrow to button elements only — avoids false matches on divs/spans.
+// ─────────────────────────────────────────────────────────────────────────────
+button.hub-btn.assert_exists()
+button.qa-btn.assert_exists()
+button.hub-btn.qa.qa-btn.assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. DATA ATTRIBUTE — exact match
+//    data-target and data-e2e are stable, semantic, and usually unique.
+// ─────────────────────────────────────────────────────────────────────────────
+[data-target="new-candidate"].assert_exists()
+[data-e2e="button-3"].assert_exists()
+button[data-target="new-candidate"].assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 5. DATA ATTRIBUTE — substring operators
+//    *=  contains substring
+//    ^=  starts with
+//    $=  ends with
+//    ~=  value in whitespace-separated list
+// ─────────────────────────────────────────────────────────────────────────────
+[data-e2e-id*="new-candidate"].assert_exists()
+[data-e2e-id^="e2e-admin"].assert_exists()
+[data-e2e-id$="btn-new-candidate"].assert_exists()
+[data-e2e-id*="locations-49350"].assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. ATTRIBUTE COMBINED WITH TAG AND CLASS
+//    Layers tag, class, and data attribute for maximum precision.
+// ─────────────────────────────────────────────────────────────────────────────
+button.hub-btn[data-target="new-candidate"].assert_exists()
+button[type="button"][data-e2e="button-3"].assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. CSS :has()  — structural containment  (CSS Level 4)
+//    "The button that contains a <strong> child."
+//    Playwright supports CSS4 :has() natively.
+// ─────────────────────────────────────────────────────────────────────────────
+button:has(strong).assert_exists()
+button:has(> strong).assert_exists()
+button:has(span).assert_exists()
+.hub-btn:has(strong).assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. PLAYWRIGHT EXTENDED CSS — :has-text()
+//    Playwright-specific pseudo-class. Matches elements whose *inner text*
+//    contains the given string (case-insensitive by default).
+// ─────────────────────────────────────────────────────────────────────────────
+button:has-text("New Candidate").assert_exists()
+.hub-btn:has-text("New Candidate").assert_exists()
+button:has-text("Create candidate").assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 9. PLAYWRIGHT text= SELECTOR
+//    Playwright's built-in text engine. Works directly inside page.locator().
+//    Partial match by default; quotes are optional for simple strings.
+// ─────────────────────────────────────────────────────────────────────────────
+text=New Candidate.assert_exists()
+text=Create candidate profiles.assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. SEMANTIC LOCATORS — text()
+//     Uses Playwright get_by_text(). Works with partial and exact matching.
+//     text("substring")          — partial match (default)
+//     text("Full Text", "exact") — exact match
+// ─────────────────────────────────────────────────────────────────────────────
+text("New Candidate").assert_exists()
+text("Create candidate").assert_exists()
+text("New Candidate", "exact").assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. SEMANTIC LOCATORS — role()
+//     Uses Playwright get_by_role(). Targets elements by their ARIA role.
+//     role("role")               — any element with that role
+//     role("role", "name")       — role + accessible name (button label)
+//     This is the most robust approach for accessible, well-structured UIs.
+// ─────────────────────────────────────────────────────────────────────────────
+role("button", "New Candidate").assert_exists()
+role("button", "New Candidate").click()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. SEMANTIC LOCATORS — label()
+//     Uses Playwright get_by_label(). For <input> elements associated with a
+//     <label> — not used for this button, but shown for completeness.
+//     label("Email address").fill("me@example.com")
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. SEMANTIC LOCATORS — placeholder()
+//     Uses Playwright get_by_placeholder(). Targets inputs by placeholder text.
+//     placeholder("Search candidates").click()
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. SEMANTIC LOCATORS — testid()
+//     Uses Playwright get_by_test_id(). Reads data-testid (or configured attr).
+//     testid("new-candidate-btn").click()
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. SEMANTIC LOCATORS — alt() / title()
+//     alt("Logo image").click()       — targets <img alt="Logo image">
+//     title("Open dialog").click()    — targets elements with title="Open dialog"
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16. XPATH
+//     Uses Playwright locator("xpath=..."). Full XPath 1.0 support.
+//     Useful for complex structural queries that CSS cannot express.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// By data attribute
+xpath("//button[@data-target='new-candidate']").assert_exists()
+
+// By class (XPath contains() on the class attribute)
+xpath("//button[contains(@class,'hub-btn')]").assert_exists()
+
+// Button whose <strong> child text contains "New Candidate"
+xpath("//button[.//strong[contains(text(),'New Candidate')]]").assert_exists()
+
+// Button whose descendant text contains "Create candidate"
+xpath("//button[contains(.,'Create candidate')]").assert_exists()
+
+// Nth button in the DOM — 1-based in XPath
+xpath("//button[@data-target='new-candidate'][1]").assert_exists()
+
+// Sibling / ancestor navigation — go up and back down
+xpath("//strong[text()='New Candidate']/parent::button").assert_exists()
+xpath("//span[contains(text(),'Create candidate')]/ancestor::button").assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 17. NTH INDEX  — when multiple elements share a selector
+//     Append [n] (0-based) to any CSS chain or locator to pick a specific match.
+// ─────────────────────────────────────────────────────────────────────────────
+button.hub-btn[0].assert_exists()
+text("New Candidate")[0].assert_exists()
+role("button", "New Candidate")[0].assert_exists()
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 18. PSEUDO-CLASSES — positional and state
+//     :first-child, :last-child, :nth-child(), :nth-of-type(), :only-of-type
+//     :enabled, :disabled, :checked, :focus-visible, :not()
+// ─────────────────────────────────────────────────────────────────────────────
+button.hub-btn:enabled.assert_exists()
+button:not([disabled]).hub-btn.assert_exists()
+button[data-target="new-candidate"]:not([disabled]).assert_enabled()

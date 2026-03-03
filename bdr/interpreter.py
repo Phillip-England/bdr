@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import pathlib
 import re
+import shutil
+import subprocess
+import sys
 import time
 import urllib.parse
 from typing import TYPE_CHECKING
@@ -217,6 +220,7 @@ class Interpreter:
         handlers = {
             # navigation
             "load":               self._load,
+            "load_clipboard":     self._load_clipboard,
             "back":               self._back,
             "forward":            self._forward,
             "refresh":            self._refresh,
@@ -242,6 +246,8 @@ class Interpreter:
             "log":            self._log,
             # element chain syntax (produced by the lexer)
             "__element__":    self._element,
+            # semantic locator chain: text(...).action() / role(...).action() / etc.
+            "__locator__":    self._locator,
             # assignment — manages its own resolution (key must not be resolved)
             "__assign__":     self._assign,
         }
@@ -388,9 +394,7 @@ class Interpreter:
         bare hosts like "localhost:3000" work without extra typing.
         """
         self._require_args(line, 1)
-        url = line.args[0]
-        if not url.startswith(('http://', 'https://')):
-            url = 'http://' + url
+        url = self._normalize_url(line.args[0])
         try:
             self._page.goto(url)
         except Exception as exc:
@@ -398,6 +402,24 @@ class Interpreter:
             raise BdrError(
                 f"Line {line.number}: {msg}\n"
                 f"  URL attempted: {url}"
+            ) from exc
+
+    def _load_clipboard(self, line: Line) -> None:
+        if line.args:
+            raise BdrError(
+                f"Line {line.number}: load_clipboard() does not take arguments,"
+                f" got {len(line.args)}"
+            )
+
+        raw_url = self._read_clipboard_text(line.number)
+        url = self._normalize_url(raw_url)
+        try:
+            self._page.goto(url)
+        except Exception as exc:
+            msg = _humanize_playwright_error('load_clipboard', exc)
+            raise BdrError(
+                f"Line {line.number}: {msg}\n"
+                f"  URL attempted from clipboard: {url}"
             ) from exc
 
     def _back(self, line: Line) -> None:
@@ -664,6 +686,104 @@ class Interpreter:
                     f" — expected {expected}, got {actual}"
                 )
 
+    def _locator(self, line: Line) -> None:
+        """Execute a semantic locator chain: text(...).action() / role(...).action() / etc.
+
+        Args layout (produced by the lexer):
+            [locator_type, n_locator_args, *locator_args, index, action, *action_args]
+        """
+        if len(line.args) < 4:
+            raise BdrError(f"Line {line.number}: malformed locator chain")
+
+        locator_type = line.args[0]
+        try:
+            n = int(line.args[1])
+        except (ValueError, IndexError):
+            raise BdrError(f"Line {line.number}: malformed locator chain (bad arg count)")
+
+        if len(line.args) < 2 + n + 2:
+            raise BdrError(f"Line {line.number}: malformed locator chain (too few args)")
+
+        locator_args = line.args[2: 2 + n]
+        index = int(line.args[2 + n])
+        action = line.args[2 + n + 1]
+        action_args = line.args[2 + n + 2:]
+
+        if action not in _ELEMENT_ACTIONS:
+            raise BdrError(
+                f"Line {line.number}: unknown element action '.{action}()'\n"
+                f"  Available actions: {', '.join(sorted(_ELEMENT_ACTIONS))}"
+            )
+
+        # Build the Playwright locator from the semantic type.
+        if locator_type == 'text':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: text() requires a text content argument")
+            exact = len(locator_args) > 1 and locator_args[1].lower() in ('exact', 'true')
+            loc = self._page.get_by_text(locator_args[0], exact=exact)
+
+        elif locator_type == 'role':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: role() requires an ARIA role argument")
+            role_name = locator_args[0]
+            name = locator_args[1] if len(locator_args) > 1 else None
+            loc = self._page.get_by_role(role_name, name=name) if name else self._page.get_by_role(role_name)
+
+        elif locator_type == 'label':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: label() requires a label text argument")
+            exact = len(locator_args) > 1 and locator_args[1].lower() in ('exact', 'true')
+            loc = self._page.get_by_label(locator_args[0], exact=exact)
+
+        elif locator_type == 'placeholder':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: placeholder() requires a placeholder text argument")
+            exact = len(locator_args) > 1 and locator_args[1].lower() in ('exact', 'true')
+            loc = self._page.get_by_placeholder(locator_args[0], exact=exact)
+
+        elif locator_type == 'testid':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: testid() requires a test ID argument")
+            loc = self._page.get_by_test_id(locator_args[0])
+
+        elif locator_type == 'alt':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: alt() requires an alt-text argument")
+            exact = len(locator_args) > 1 and locator_args[1].lower() in ('exact', 'true')
+            loc = self._page.get_by_alt_text(locator_args[0], exact=exact)
+
+        elif locator_type == 'title':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: title() requires a title attribute argument")
+            exact = len(locator_args) > 1 and locator_args[1].lower() in ('exact', 'true')
+            loc = self._page.get_by_title(locator_args[0], exact=exact)
+
+        elif locator_type == 'xpath':
+            if not locator_args:
+                raise BdrError(f"Line {line.number}: xpath() requires an XPath expression")
+            loc = self._page.locator(f"xpath={locator_args[0]}")
+
+        else:
+            raise BdrError(f"Line {line.number}: unknown locator type '{locator_type}'")
+
+        if index >= 0:
+            loc = loc.nth(index)
+
+        selector_display = f"{locator_type}({', '.join(repr(a) for a in locator_args)})"
+        try:
+            self._run_element_action(line, loc, selector_display, index, action, action_args)
+        except BdrError:
+            raise
+        except Exception as exc:
+            raw = str(exc)
+            exc_type = type(exc).__name__
+            if "TimeoutError" in exc_type or ("ms exceeded" in raw and "Timeout" in raw):
+                raise self._element_timeout_error(line, selector_display, index, action) from exc
+            msg = _humanize_playwright_error(line.command, exc)
+            raise BdrError(
+                f"Line {line.number}: {msg}\n  Command: {line.raw}"
+            ) from exc
+
     def _element_timeout_error(
         self,
         line: Line,
@@ -889,6 +1009,53 @@ class Interpreter:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _normalize_url(self, url: str) -> str:
+        cleaned = url.strip()
+        if not cleaned.startswith(('http://', 'https://')):
+            return 'http://' + cleaned
+        return cleaned
+
+    def _read_clipboard_text(self, lineno: int) -> str:
+        """Read plain text from the system clipboard."""
+        commands: list[list[str]]
+        if sys.platform == "darwin":
+            commands = [["pbpaste"]]
+        elif sys.platform == "win32":
+            commands = [
+                ["powershell", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+                ["pwsh", "-NoProfile", "-Command", "Get-Clipboard -Raw"],
+            ]
+        else:
+            commands = [
+                ["wl-paste", "--no-newline"],
+                ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard", "--output"],
+            ]
+
+        available = [cmd for cmd in commands if shutil.which(cmd[0])]
+        if not available:
+            raise BdrError(
+                f"Line {lineno}: could not read clipboard on this machine\n"
+                f"  Hint: Install a clipboard utility"
+                f" ({' / '.join(cmd[0] for cmd in commands)})."
+            )
+
+        for cmd in available:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                continue
+            value = result.stdout.strip()
+            if not value:
+                raise BdrError(
+                    f"Line {lineno}: clipboard is empty\n"
+                    f"  Hint: Copy a URL first, then call load_clipboard()."
+                )
+            return value
+
+        raise BdrError(
+            f"Line {lineno}: failed to read clipboard contents"
+        )
 
     def _require_args(self, line: Line, n: int) -> None:
         if len(line.args) < n:

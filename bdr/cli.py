@@ -132,6 +132,7 @@ timeout = 15000
 // $user = "me@example.com"
 
 load("https://example.com")
+// load_clipboard()              // read URL from your system clipboard
 
 // Interact with elements using CSS selector chains:
 // .selector.click()

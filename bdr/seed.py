@@ -64,6 +64,7 @@ timeout = 15000
 slow = 0.2
 
 load($url)
+# load_clipboard()   # navigate using the URL currently in the clipboard
 #email.fill("me@example.com")
 #password.fill("hunter2")
 #submit.click()
