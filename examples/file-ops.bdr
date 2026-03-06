@@ -1,0 +1,40 @@
+// file-ops.bdr
+// Demonstrates file upload (.upload) and canvas drawing (.draw).
+//
+// These actions cover two common "paperwork" patterns that plain
+// click/fill chains cannot handle:
+//   1. Attaching a local document to an <input type="file"> field.
+//   2. Drawing a handwritten signature on a canvas / signature-pad widget.
+//
+// Run:  bdr run examples/file-ops.bdr
+
+$app = "https://example.com/paperwork"
+
+load($app)
+
+/* ── File upload ──────────────────────────────────────────────────
+   Attach a PDF without triggering the native OS file-picker.
+   Path is relative to this script's directory.               */
+#doc-upload.upload("./sample-contract.pdf")
+
+// Multiple files in one call:
+// input[type="file"].upload("./id-front.jpg", "./id-back.jpg")
+
+// Works with variables too:
+// $doc = "./signed-form.pdf"
+// #upload-field.upload($doc)
+
+/* ── Canvas / signature-pad drawing ──────────────────────────────
+   .draw() with no arguments produces a natural wave signature
+   that spans the full width of the element.                  */
+#signature-canvas.wait_visible()
+#signature-canvas.draw()
+
+// Custom path — "x,y" pairs are pixel offsets from the element's top-left:
+// #signature-canvas.draw("12,55 55,18 110,65 175,22 235,50")
+
+/* ── Submit ───────────────────────────────────────────────────── */
+#submit-btn.click()
+#confirmation-message.wait()
+screenshot("paperwork-done.png")
+log("Document submitted successfully")

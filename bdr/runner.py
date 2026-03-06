@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 
 from .interpreter import DEFAULT_SCREENSHOT_DIR, Interpreter, _ELEMENT_ACTIONS
 from .lexer import Line, tokenize
+from .status import StatusTracker
 
 
 def _load_dotenv(script_dir: pathlib.Path) -> dict[str, str]:
@@ -49,6 +50,8 @@ _KNOWN_COMMANDS: dict[str, int] = {
     "assert_page_contains": 1,
     # composition + output
     "exec": 1, "screenshot_dir": 1, "screenshot": 1, "log": 0,
+    # status tracking
+    "status_file": 1,
     # element chain syntax (produced by the lexer for SELECTOR[n].action(args))
     # args: [selector, index, action, *action_args] — minimum 3
     "__element__": 3,
@@ -208,6 +211,8 @@ def run_script(
     slow_mo: float = 0.0,
     timeout: int = 30_000,
     screenshot_dir: pathlib.Path | None = None,
+    status_file: pathlib.Path | None = None,
+    no_status: bool = False,
 ) -> None:
     script_path = pathlib.Path(path)
     if not script_path.exists():
@@ -223,15 +228,29 @@ def run_script(
     effective_screenshot_dir = screenshot_dir or DEFAULT_SCREENSHOT_DIR
     env_vars = _load_dotenv(script_path.parent)
 
+    tracker = StatusTracker(
+        script_name=script_path.name,
+        status_file=status_file,
+        enabled=not no_status,
+    )
+
     print(f"bdr running: {script_path.name}  ({len(lines)} commands)")
     print(f"  screenshots → {effective_screenshot_dir}")
     if env_vars:
         print(f"  .env → {len(env_vars)} variable(s) loaded")
+    if not no_status:
+        print(f"  status     → {tracker._path}")
+
+    tracker.start()
 
     with sync_playwright() as pw:
         browser_type = getattr(pw, browser)
+        launch_kwargs: dict[str, object] = {"headless": not headed}
+        if headed and browser == "chromium":
+            # Let the OS-sized browser window control viewport dimensions.
+            launch_kwargs["args"] = ["--start-maximized"]
         try:
-            b = browser_type.launch(headless=not headed)
+            b = browser_type.launch(**launch_kwargs)
         except Exception as exc:
             from .interpreter import BdrError
             exc_msg = str(exc)
@@ -241,7 +260,12 @@ def run_script(
                     f"  Hint: Run 'bdr setup' to install it."
                 ) from exc
             raise BdrError(f"Failed to launch browser '{browser}': {exc_msg}") from exc
-        page = b.new_page()
+        context_kwargs: dict[str, object] = {}
+        if headed:
+            # Keep viewport tied to the actual browser window size.
+            context_kwargs["no_viewport"] = True
+        context = b.new_context(**context_kwargs)
+        page = context.new_page()
         try:
             interpreter = Interpreter(
                 page,
@@ -250,6 +274,7 @@ def run_script(
                 base_dir=script_path.parent,
                 screenshot_dir=effective_screenshot_dir,
                 env_vars=env_vars,
+                status_tracker=tracker,
             )
             interpreter.run(lines)
         except Exception as exc:
@@ -258,7 +283,9 @@ def run_script(
             _save_error_screenshot(page, effective_screenshot_dir)
             raise
         finally:
+            context.close()
             b.close()
+            tracker.finish()
 
     print("Done.")
 

@@ -50,8 +50,8 @@ from dataclasses import dataclass
 # Variable assignment:  $name = <value>
 _VAR_ASSIGN = re.compile(r'^\$(\w+)\s*=\s*(.+)$')
 
-# Setting assignment:   timeout = <value>  /  slow = <value>
-_SETTING_ASSIGN = re.compile(r'^(timeout|slow)\s*=\s*(.+)$')
+# Setting assignment:   timeout = <value>  /  slow = <value>  /  no_status = <value>
+_SETTING_ASSIGN = re.compile(r'^(timeout|slow|no_status)\s*=\s*(.+)$')
 
 # Function call:        name(...)  — name ends at first '('
 _FUNC_NAME = re.compile(r'^([a-z][a-z_0-9]*)\(')

@@ -14,6 +14,7 @@ from . import __version__
 from .interpreter import BdrError, DEFAULT_SCREENSHOT_DIR
 from .runner import check_script, run_script
 from .seed import extract_seed_version, render_seed
+from .status import DEFAULT_STATUS_FILE
 
 
 def _fail(heading: str, body: str) -> None:
@@ -39,6 +40,7 @@ def main() -> None:
       bdr extract URL SELECTOR   Generate a .el selector file from a live page
       bdr setup                  Install Playwright browsers
       bdr screenshots            List captured screenshots
+      bdr kill                   Kill any currently running bdr test
     """
 
 
@@ -59,10 +61,16 @@ def main() -> None:
               help="Default element wait timeout in milliseconds.")
 @click.option("--screenshot-dir", default=None, metavar="PATH",
               help=f"Where to save screenshots. Default: {DEFAULT_SCREENSHOT_DIR}")
+@click.option("--no-status", is_flag=True, default=False,
+              help="Disable writing the live status file for this run.")
+@click.option("--status-file", default=None, metavar="PATH",
+              help=f"Where to write the live status file. Default: {DEFAULT_STATUS_FILE}")
 def run(script: str, browser: str, headless: bool, slow: float,
-        timeout: int, screenshot_dir: str | None) -> None:
+        timeout: int, screenshot_dir: str | None,
+        no_status: bool, status_file: str | None) -> None:
     """Execute a .bdr script."""
     sdir = pathlib.Path(screenshot_dir).resolve() if screenshot_dir else None
+    sf = pathlib.Path(status_file).resolve() if status_file else None
     try:
         run_script(
             script,
@@ -71,6 +79,8 @@ def run(script: str, browser: str, headless: bool, slow: float,
             slow_mo=slow,
             timeout=timeout,
             screenshot_dir=sdir,
+            status_file=sf,
+            no_status=no_status,
         )
     except BdrError as exc:
         _fail(f"Script failed — {script}:", str(exc))
@@ -344,6 +354,76 @@ def screenshots_cmd(directory: str | None, open_dir: bool) -> None:
         mtime = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
         rel = f.relative_to(target)
         click.echo(f"  {mtime}  {size_kb:6.1f} KB  {rel}")
+
+
+# ---------------------------------------------------------------------------
+# kill
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--status-file", default=None, metavar="PATH",
+              help=f"Status file to read. Default: {DEFAULT_STATUS_FILE}")
+@click.option("--force", is_flag=True, default=False,
+              help="Send SIGKILL instead of SIGTERM.")
+def kill(status_file: str | None, force: bool) -> None:
+    """Kill the currently running bdr test.
+
+    Reads the live status file to find the process ID and terminates it.
+    The status file is removed after a successful kill.
+
+    \b
+    Examples:
+      bdr kill
+      bdr kill --force
+      bdr kill --status-file ./my-run.json
+    """
+    import json
+    import os
+    import signal as _signal
+
+    sf = pathlib.Path(status_file).resolve() if status_file else DEFAULT_STATUS_FILE
+
+    if not sf.exists():
+        raise click.ClickException(
+            f"No status file found at {sf}\n"
+            "  Is a bdr test currently running?"
+        )
+
+    try:
+        data = json.loads(sf.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise click.ClickException(f"Could not read status file: {exc}")
+
+    pid = data.get("pid")
+    script = data.get("script", "unknown")
+    started = data.get("started", "unknown")
+    action_count = len(data.get("actions", []))
+
+    if not pid:
+        raise click.ClickException("Status file does not contain a PID.")
+
+    click.echo(f"  script:  {script}")
+    click.echo(f"  started: {started}")
+    click.echo(f"  actions: {action_count} completed")
+    click.echo(f"  pid:     {pid}")
+
+    sig = _signal.SIGKILL if (force and hasattr(_signal, "SIGKILL")) else _signal.SIGTERM
+
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        click.echo(f"  Process {pid} is no longer running — removing stale status file.")
+        sf.unlink(missing_ok=True)
+        return
+    except PermissionError:
+        raise click.ClickException(f"Permission denied to kill process {pid}.")
+
+    sig_name = "SIGKILL" if sig == getattr(_signal, "SIGKILL", None) else "SIGTERM"
+    click.echo(f"  sent {sig_name} to process {pid}")
+
+    # Remove the status file — the process may not get a chance to clean up.
+    sf.unlink(missing_ok=True)
+    click.echo("  status file removed")
 
 
 # ---------------------------------------------------------------------------

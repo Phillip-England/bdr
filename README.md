@@ -233,6 +233,57 @@ refresh()
 #first-field.focus()
 
 .cta-button.scroll_to()                # scroll element into view
+
+input[type="file"].upload("./doc.pdf") # attach a file (see File upload below)
+canvas.draw()                          # sign a signature pad (see Drawing below)
+```
+
+---
+
+### File upload
+
+Use `.upload()` on an `<input type="file">` element to attach local files without touching the OS file-picker dialog.
+
+```
+input[type="file"].upload("./documents/contract.pdf")
+#doc-input.upload("./id-front.jpg", "./id-back.jpg")   // multiple files at once
+$path = "./signed-form.pdf"
+#upload-field.upload($path)                             // works with variables
+```
+
+- Paths are resolved relative to the **script's directory** (not `cwd`).
+- An error is raised immediately if the file does not exist.
+- Upload bypasses the native file-picker — no `press("Enter")` or dialog handling needed.
+
+---
+
+### Drawing / signature pads
+
+Use `.draw()` on a `<canvas>` or signature-pad element to simulate a handwritten signature using mouse events.
+
+```
+// Default — draws a natural wave across the full element width
+canvas.draw()
+#signature-canvas.draw()
+
+// Custom path — space-separated "x,y" pixel offsets relative to the element's top-left corner
+canvas.draw("10,60 60,20 120,70 180,25 240,55")
+```
+
+- The element must be visible before `.draw()` is called; add `.wait_visible()` if the canvas appears after a user interaction.
+- Works with popular signature libraries (e.g. `signature_pad.js`, DocuSign embedded pads) — just target the `<canvas>` element directly.
+- Combine with `screenshot("sig-check.png")` to verify the result visually.
+
+**Pattern for a legal-document signature flow:**
+
+```
+load("https://app.example.com/sign/abc123")
+#agree-checkbox.check()
+#signature-canvas.wait_visible()
+#signature-canvas.draw()            // sign
+#submit-signature.click()
+#confirmation.wait()
+screenshot("signed.png")
 ```
 
 ---
@@ -906,6 +957,72 @@ load("https://example.com/login")
 
 ---
 
+## Live status file
+
+bdr writes a live JSON status file while a script runs. It records the process ID, script name, start time, and every action completed so far. The file is deleted automatically when the run finishes — whether it succeeds or fails.
+
+This is designed for LLM agents and CI tools that need to observe a running test.
+
+**Default location:** `~/.bdr/status.json`
+
+**Example contents mid-run:**
+
+```json
+{
+  "pid": 12345,
+  "script": "login.bdr",
+  "started": "2026-03-06T10:30:00-05:00",
+  "status": "running",
+  "actions": [
+    {"time": "2026-03-06T10:30:01-05:00", "line": 4, "action": "load(\"https://example.com\")"},
+    {"time": "2026-03-06T10:30:02-05:00", "line": 5, "action": "#email.fill(\"me@example.com\")"}
+  ]
+}
+```
+
+If the status file exists, a test is in flight. If it is absent, no test is running (or it completed normally).
+
+### Killing a stuck run
+
+If an agent reads the status file and determines the test is stuck, it can kill the process:
+
+```bash
+bdr kill           # sends SIGTERM to the running bdr process
+bdr kill --force   # sends SIGKILL if SIGTERM is not enough
+```
+
+`bdr kill` reads the PID from the status file, terminates the process, and removes the file.
+
+### Opt out
+
+Status tracking is on by default. Opt out in a script:
+
+```
+no_status = true
+```
+
+Or from the CLI:
+
+```bash
+bdr run script.bdr --no-status
+```
+
+### Change the status file path
+
+In a script:
+
+```
+status_file("./runs/my-run.json")
+```
+
+From the CLI:
+
+```bash
+bdr run script.bdr --status-file ./runs/my-run.json
+```
+
+---
+
 ## Organizing a project
 
 ```
@@ -930,11 +1047,13 @@ Execute a `.bdr` script.
 
 ```bash
 bdr run script.bdr
-bdr run script.bdr --browser firefox      # chromium (default), firefox, webkit
-bdr run script.bdr --headless             # hide the browser window
-bdr run script.bdr --slow 0.5            # pause 0.5s between commands
-bdr run script.bdr --timeout 10000       # element wait timeout in ms (default: 30000)
-bdr run script.bdr --screenshot-dir ./ss # where to save screenshots
+bdr run script.bdr --browser firefox             # chromium (default), firefox, webkit
+bdr run script.bdr --headless                    # hide the browser window
+bdr run script.bdr --slow 0.5                   # pause 0.5s between commands
+bdr run script.bdr --timeout 10000              # element wait timeout in ms (default: 30000)
+bdr run script.bdr --screenshot-dir ./ss        # where to save screenshots
+bdr run script.bdr --no-status                  # disable the live status file
+bdr run script.bdr --status-file ./run.json     # custom status file path
 ```
 
 ### `bdr check`
@@ -988,6 +1107,16 @@ List captured screenshots or open the folder.
 bdr screenshots                      # list from the default folder (~/.bdr/screenshots)
 bdr screenshots --dir ./shots        # list from a custom folder
 bdr screenshots --open               # open the folder in Finder / Explorer
+```
+
+### `bdr kill`
+
+Kill any currently running bdr test. Reads the live status file to find the PID and terminates it.
+
+```bash
+bdr kill                             # sends SIGTERM
+bdr kill --force                     # sends SIGKILL
+bdr kill --status-file ./my-run.json # custom status file location
 ```
 
 ### `bdr setup`

@@ -17,6 +17,7 @@ _ENV_CALL = re.compile(r'^env\(["\']?([^"\'()]+)["\']?\)$')
 
 from .lexer import Line, tokenize
 from .mock import MockError, resolve_mock
+from .status import StatusTracker
 
 if TYPE_CHECKING:
     from playwright.sync_api import Page
@@ -32,6 +33,10 @@ _ELEMENT_ACTIONS = {
     'select_value',  # select by option value attr   (the HTML value="...")
     'select_index',  # select by 0-based position    (first option = 0)
     'check', 'uncheck', 'hover', 'focus',
+    # file upload
+    'upload',
+    # mouse drawing / signature pads
+    'draw',
     # scrolling
     'scroll_to',
     # waiting
@@ -182,6 +187,7 @@ class Interpreter:
         base_dir: pathlib.Path | None = None,
         screenshot_dir: pathlib.Path | None = None,
         env_vars: dict[str, str] | None = None,
+        status_tracker: StatusTracker | None = None,
     ) -> None:
         self._page = page
         self._slow_mo = slow_mo
@@ -194,6 +200,7 @@ class Interpreter:
         self._screenshot_dir: pathlib.Path = (
             screenshot_dir or DEFAULT_SCREENSHOT_DIR
         ).resolve()
+        self._status: StatusTracker | None = status_tracker
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -244,6 +251,8 @@ class Interpreter:
             "screenshot_dir": self._set_screenshot_dir,
             "screenshot":     self._screenshot,
             "log":            self._log,
+            # status tracking
+            "status_file":    self._set_status_file,
             # element chain syntax (produced by the lexer)
             "__element__":    self._element,
             # semantic locator chain: text(...).action() / role(...).action() / etc.
@@ -269,6 +278,8 @@ class Interpreter:
                     raise BdrError(
                         f"Line {line.number}: {msg}\n  Command: {line.raw}"
                     ) from exc
+                if self._status:
+                    self._status.log_action(line.number, line.raw)
                 return
             raise BdrError(f"Line {line.number}: unknown command '{line.command}()'")
 
@@ -290,6 +301,9 @@ class Interpreter:
             raise BdrError(
                 f"Line {line.number}: {msg}\n  Command: {line.raw}"
             ) from exc
+
+        if self._status:
+            self._status.log_action(line.number, line.raw)
 
     # ------------------------------------------------------------------
     # Variable resolution
@@ -345,6 +359,9 @@ class Interpreter:
                 raise BdrError(
                     f"Line {line.number}: slow must be a number of seconds, got '{value}'"
                 )
+        elif key == 'no_status':
+            if self._status:
+                self._status.disable()
         elif key.startswith('$'):
             self._variables[key[1:]] = value
         else:
@@ -554,6 +571,70 @@ class Interpreter:
 
         elif action == 'focus':
             loc.focus(timeout=self._timeout)
+
+        elif action == 'upload':
+            # Upload one or more files to an <input type="file"> element.
+            if not action_args:
+                raise BdrError(f"Line {line.number}: .upload() requires at least one file path")
+            resolved: list[str] = []
+            for raw_path in action_args:
+                p = pathlib.Path(raw_path)
+                if not p.is_absolute():
+                    p = (self._base_dir / p).resolve()
+                else:
+                    p = p.resolve()
+                if not p.exists():
+                    raise BdrError(
+                        f"Line {line.number}: .upload() file not found: {p}\n"
+                        f"  Hint: Path is resolved relative to the script's directory."
+                    )
+                resolved.append(str(p))
+            loc.wait_for(timeout=self._timeout)
+            loc.set_input_files(resolved[0] if len(resolved) == 1 else resolved)
+
+        elif action == 'draw':
+            # Draw a signature-like mouse path on a canvas / signature-pad element.
+            # Without args: draws a natural wave across the element bounds.
+            # With one arg:  space-separated "x,y" relative pixel pairs, e.g. "10,20 80,40 150,20"
+            loc.wait_for(state='visible', timeout=self._timeout)
+            bbox = loc.bounding_box()
+            if not bbox:
+                raise BdrError(
+                    f"Line {line.number}: .draw() — '{selector}' has no bounding box"
+                )
+            x0, y0, w, h = bbox['x'], bbox['y'], bbox['width'], bbox['height']
+            if action_args:
+                try:
+                    pts: list[tuple[float, float]] = []
+                    for pair in action_args[0].split():
+                        rx, ry = pair.split(',')
+                        pts.append((x0 + float(rx), y0 + float(ry)))
+                except Exception:
+                    raise BdrError(
+                        f"Line {line.number}: .draw() coordinates must be space-separated 'x,y' pairs,"
+                        f" e.g. .draw(\"10,30 80,20 150,40\")"
+                    )
+                if not pts:
+                    raise BdrError(
+                        f"Line {line.number}: .draw() requires at least one coordinate pair"
+                    )
+            else:
+                # Default: a natural wave signature that covers the element width.
+                mx = w * 0.08
+                pts = [
+                    (x0 + mx,        y0 + h * 0.65),
+                    (x0 + w * 0.18,  y0 + h * 0.30),
+                    (x0 + w * 0.35,  y0 + h * 0.72),
+                    (x0 + w * 0.52,  y0 + h * 0.28),
+                    (x0 + w * 0.70,  y0 + h * 0.65),
+                    (x0 + w * 0.85,  y0 + h * 0.40),
+                    (x0 + w - mx,    y0 + h * 0.55),
+                ]
+            self._page.mouse.move(pts[0][0], pts[0][1])
+            self._page.mouse.down()
+            for px, py in pts[1:]:
+                self._page.mouse.move(px, py, steps=15)
+            self._page.mouse.up()
 
         elif action == 'scroll_to':
             loc.scroll_into_view_if_needed(timeout=self._timeout)
@@ -1005,6 +1086,14 @@ class Interpreter:
 
     def _log(self, line: Line) -> None:
         print(f"  log: {' '.join(line.args)}")
+
+    def _set_status_file(self, line: Line) -> None:
+        self._require_args(line, 1)
+        if self._status:
+            path = pathlib.Path(line.args[0])
+            if not path.is_absolute():
+                path = pathlib.Path.cwd() / path
+            self._status.set_path(path)
 
     # ------------------------------------------------------------------
     # Helpers
