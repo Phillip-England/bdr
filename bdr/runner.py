@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import pathlib
 
-from playwright.sync_api import sync_playwright
-
 from .interpreter import DEFAULT_SCREENSHOT_DIR, Interpreter, _ELEMENT_ACTIONS
 from .lexer import Line, tokenize
 from .status import StatusTracker
@@ -42,8 +40,13 @@ _KNOWN_COMMANDS: dict[str, int] = {
     "load": 1, "load_clipboard": 0, "back": 0, "forward": 0, "refresh": 0,
     # keyboard / page-level interaction
     "press": 1, "scroll_up": 0, "scroll_down": 0,
+    # desktop mouse / keyboard interaction
+    "key_press": 1, "key_down": 1, "key_up": 1, "hotkey": 1, "type_text": 1,
+    "mouse_move": 2, "mouse_move_point": 1, "mouse_move_by": 2,
+    "mouse_drag_to": 2, "mouse_drag_by": 2,
+    "mouse_click": 0, "mouse_down": 0, "mouse_up": 0, "mouse_scroll": 1,
     # waiting (page / text level)
-    "wait": 1, "wait_for_text": 1, "wait_until_loaded": 1,
+    "wait": 1, "wait_visible": 1, "wait_for_text": 1, "wait_until_loaded": 1,
     # assertions — page level
     "assert_title": 1, "assert_title_equals": 1,
     "assert_url": 1, "assert_url_equals": 1,
@@ -214,6 +217,8 @@ def run_script(
     status_file: pathlib.Path | None = None,
     no_status: bool = False,
 ) -> None:
+    from playwright.sync_api import sync_playwright
+
     script_path = pathlib.Path(path)
     if not script_path.exists():
         raise FileNotFoundError(f"Script not found: {script_path}")

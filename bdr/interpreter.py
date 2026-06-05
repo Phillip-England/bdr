@@ -16,6 +16,17 @@ from typing import TYPE_CHECKING
 _ENV_CALL = re.compile(r'^env\(["\']?([^"\'()]+)["\']?\)$')
 
 from .lexer import Line, tokenize
+from .input import (
+    DesktopController,
+    DesktopInputError,
+    format_color,
+    format_point,
+    parse_call,
+    parse_color_from_args,
+    parse_float,
+    parse_int,
+    parse_point,
+)
 from .mock import MockError, resolve_mock
 from .status import StatusTracker
 
@@ -201,6 +212,7 @@ class Interpreter:
             screenshot_dir or DEFAULT_SCREENSHOT_DIR
         ).resolve()
         self._status: StatusTracker | None = status_tracker
+        self._desktop = DesktopController()
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -233,10 +245,25 @@ class Interpreter:
             "refresh":            self._refresh,
             # keyboard / scroll (page-level, not element-specific)
             "press":              self._press,
+            "key_press":          self._key_press,
+            "key_down":           self._key_down,
+            "key_up":             self._key_up,
+            "hotkey":             self._hotkey,
+            "type_text":          self._type_text,
             "scroll_up":          self._scroll_up,
             "scroll_down":        self._scroll_down,
+            "mouse_move":         self._mouse_move,
+            "mouse_move_point":   self._mouse_move_point,
+            "mouse_move_by":      self._mouse_move_by,
+            "mouse_drag_to":      self._mouse_drag_to,
+            "mouse_drag_by":      self._mouse_drag_by,
+            "mouse_click":        self._mouse_click,
+            "mouse_down":         self._mouse_down,
+            "mouse_up":           self._mouse_up,
+            "mouse_scroll":       self._mouse_scroll,
             # waiting (page/text level)
             "wait":               self._wait,
+            "wait_visible":        self._wait_visible,
             "wait_for_text":      self._wait_for_text,
             "wait_until_loaded":  self._wait_until_loaded,
             # assertions — page level
@@ -329,12 +356,149 @@ class Interpreter:
         if generated is not None:
             return generated
 
+        try:
+            builtin = self._resolve_builtin(value, lineno)
+        except DesktopInputError as exc:
+            raise BdrError(f"Line {lineno}: {exc}") from exc
+        if builtin is not None:
+            return builtin
+
         if not value.startswith('$'):
             return value
         name = value[1:]
         if name not in self._variables:
             raise BdrError(f"Line {lineno}: undefined variable '{value}'")
         return self._variables[name]
+
+    # ------------------------------------------------------------------
+    # Built-in helper expressions
+    # ------------------------------------------------------------------
+
+    def _resolve_builtin(self, value: str, lineno: int) -> str | None:
+        parsed = parse_call(value)
+        if parsed is None:
+            return None
+
+        name, raw_args = parsed
+        args = [self._resolve(lineno, arg) for arg in raw_args]
+
+        if name == "point":
+            if len(args) != 2:
+                raise DesktopInputError(
+                    f"point() expects x and y, got {len(args)} argument(s)"
+                )
+            return format_point(
+                parse_point(f"{parse_int(args[0], 'x')},{parse_int(args[1], 'y')}")
+            )
+
+        if name == "offset_point":
+            if len(args) != 3:
+                raise DesktopInputError(
+                    f"offset_point() expects point, dx, dy, got {len(args)} argument(s)"
+                )
+            point = parse_point(args[0], "offset_point() point")
+            dx = parse_int(args[1], "offset_point() dx")
+            dy = parse_int(args[2], "offset_point() dy")
+            return format_point(type(point)(point.x + dx, point.y + dy))
+
+        if name == "mouse_point":
+            if args:
+                raise DesktopInputError(
+                    f"mouse_point() does not take arguments, got {len(args)}"
+                )
+            return format_point(self._desktop.mouse_position())
+
+        if name == "mouse_x":
+            if args:
+                raise DesktopInputError(
+                    f"mouse_x() does not take arguments, got {len(args)}"
+                )
+            return str(self._desktop.mouse_position().x)
+
+        if name == "mouse_y":
+            if args:
+                raise DesktopInputError(
+                    f"mouse_y() does not take arguments, got {len(args)}"
+                )
+            return str(self._desktop.mouse_position().y)
+
+        if name == "screen_width":
+            if args:
+                raise DesktopInputError(
+                    f"screen_width() does not take arguments, got {len(args)}"
+                )
+            return str(self._desktop.screen_size().x)
+
+        if name == "screen_height":
+            if args:
+                raise DesktopInputError(
+                    f"screen_height() does not take arguments, got {len(args)}"
+                )
+            return str(self._desktop.screen_size().y)
+
+        if name == "screen_size":
+            if args:
+                raise DesktopInputError(
+                    f"screen_size() does not take arguments, got {len(args)}"
+                )
+            return format_point(self._desktop.screen_size())
+
+        if name == "screen_center":
+            if args:
+                raise DesktopInputError(
+                    f"screen_center() does not take arguments, got {len(args)}"
+                )
+            return format_point(self._desktop.screen_center())
+
+        if name == "pixel_color":
+            if len(args) != 2:
+                raise DesktopInputError(
+                    f"pixel_color() expects x and y, got {len(args)} argument(s)"
+                )
+            color = self._desktop.pixel_color(
+                parse_int(args[0], "pixel_color() x"),
+                parse_int(args[1], "pixel_color() y"),
+            )
+            return format_color(color)
+
+        if name == "nearest_color_point":
+            if len(args) not in (3, 4, 5):
+                raise DesktopInputError(
+                    "nearest_color_point() expects r, g, b, with optional tolerance and radius"
+                )
+            color = parse_color_from_args(args[:3], "nearest_color_point() color")
+            tolerance = parse_int(args[3], "nearest_color_point() tolerance") if len(args) >= 4 else 0
+            radius = parse_int(args[4], "nearest_color_point() radius") if len(args) >= 5 else None
+            return format_point(
+                self._desktop.nearest_color_point(
+                    color,
+                    tolerance=tolerance,
+                    radius=radius,
+                )
+            )
+
+        if name == "nearest_color_point_from":
+            if len(args) not in (5, 6, 7):
+                raise DesktopInputError(
+                    "nearest_color_point_from() expects x, y, r, g, b, with optional tolerance and radius"
+                )
+            origin = parse_point(
+                f"{parse_int(args[0], 'origin x')},{parse_int(args[1], 'origin y')}",
+                "nearest_color_point_from() origin",
+            )
+            color = parse_color_from_args(args[2:5], "nearest_color_point_from() color")
+            tolerance = parse_int(args[5], "nearest_color_point_from() tolerance") if len(args) >= 6 else 0
+            radius = parse_int(args[6], "nearest_color_point_from() radius") if len(args) >= 7 else None
+            return format_point(
+                self._desktop.nearest_color_point(
+                    color,
+                    tolerance=tolerance,
+                    radius=radius,
+                    origin=origin,
+                )
+            )
+
+        return None
 
     # ------------------------------------------------------------------
     # Assignment  ($name = value  /  timeout = ms)
@@ -946,11 +1110,95 @@ class Interpreter:
         self._require_args(line, 1)
         self._page.keyboard.press(line.args[0])
 
+    def _key_press(self, line: Line) -> None:
+        self._require_args(line, 1)
+        self._desktop.key_press(line.args[0])
+
+    def _key_down(self, line: Line) -> None:
+        self._require_args(line, 1)
+        self._desktop.key_down(line.args[0])
+
+    def _key_up(self, line: Line) -> None:
+        self._require_args(line, 1)
+        self._desktop.key_up(line.args[0])
+
+    def _hotkey(self, line: Line) -> None:
+        self._require_args(line, 1)
+        self._desktop.hotkey(*line.args)
+
+    def _type_text(self, line: Line) -> None:
+        self._require_args(line, 1)
+        interval = parse_float(line.args[1], "type_text() interval") if len(line.args) > 1 else 0.0
+        self._desktop.write(line.args[0], interval=interval)
+
     def _scroll_up(self, line: Line) -> None:
         self._page.mouse.wheel(0, -500)
 
     def _scroll_down(self, line: Line) -> None:
         self._page.mouse.wheel(0, 500)
+
+    def _mouse_move(self, line: Line) -> None:
+        self._require_args(line, 2)
+        duration = parse_float(line.args[2], "mouse_move() duration") if len(line.args) > 2 else 0.0
+        self._desktop.move_to(
+            parse_int(line.args[0], "mouse_move() x"),
+            parse_int(line.args[1], "mouse_move() y"),
+            duration=duration,
+        )
+
+    def _mouse_move_point(self, line: Line) -> None:
+        self._require_args(line, 1)
+        point = parse_point(line.args[0], "mouse_move_point() point")
+        duration = parse_float(line.args[1], "mouse_move_point() duration") if len(line.args) > 1 else 0.0
+        self._desktop.move_to(point.x, point.y, duration=duration)
+
+    def _mouse_move_by(self, line: Line) -> None:
+        self._require_args(line, 2)
+        duration = parse_float(line.args[2], "mouse_move_by() duration") if len(line.args) > 2 else 0.0
+        self._desktop.move_rel(
+            parse_int(line.args[0], "mouse_move_by() dx"),
+            parse_int(line.args[1], "mouse_move_by() dy"),
+            duration=duration,
+        )
+
+    def _mouse_drag_to(self, line: Line) -> None:
+        self._require_args(line, 2)
+        duration = parse_float(line.args[2], "mouse_drag_to() duration") if len(line.args) > 2 else 0.0
+        button = line.args[3] if len(line.args) > 3 else "left"
+        self._desktop.drag_to(
+            parse_int(line.args[0], "mouse_drag_to() x"),
+            parse_int(line.args[1], "mouse_drag_to() y"),
+            duration=duration,
+            button=button,
+        )
+
+    def _mouse_drag_by(self, line: Line) -> None:
+        self._require_args(line, 2)
+        duration = parse_float(line.args[2], "mouse_drag_by() duration") if len(line.args) > 2 else 0.0
+        button = line.args[3] if len(line.args) > 3 else "left"
+        self._desktop.drag_rel(
+            parse_int(line.args[0], "mouse_drag_by() dx"),
+            parse_int(line.args[1], "mouse_drag_by() dy"),
+            duration=duration,
+            button=button,
+        )
+
+    def _mouse_click(self, line: Line) -> None:
+        button = line.args[0] if len(line.args) >= 1 else "left"
+        clicks = parse_int(line.args[1], "mouse_click() clicks") if len(line.args) >= 2 else 1
+        self._desktop.click(button=button, clicks=clicks)
+
+    def _mouse_down(self, line: Line) -> None:
+        button = line.args[0] if line.args else "left"
+        self._desktop.mouse_down(button=button)
+
+    def _mouse_up(self, line: Line) -> None:
+        button = line.args[0] if line.args else "left"
+        self._desktop.mouse_up(button=button)
+
+    def _mouse_scroll(self, line: Line) -> None:
+        self._require_args(line, 1)
+        self._desktop.scroll(parse_int(line.args[0], "mouse_scroll() amount"))
 
     # ------------------------------------------------------------------
     # Waiting (page / text level)
@@ -969,6 +1217,11 @@ class Interpreter:
     def _wait_for_text(self, line: Line) -> None:
         self._require_args(line, 1)
         self._page.wait_for_selector(f"text={line.args[0]}", timeout=self._timeout)
+
+    def _wait_visible(self, line: Line) -> None:
+        self._require_args(line, 1)
+        selector = line.args[0]
+        self._page.locator(selector).wait_for(state="visible", timeout=self._timeout)
 
     def _wait_until_loaded(self, line: Line) -> None:
         """Block until the page URL contains *path* and the page is fully loaded."""

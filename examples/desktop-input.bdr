@@ -1,0 +1,32 @@
+// desktop-input.bdr
+// Demonstrates desktop mouse/keyboard primitives and helper expressions.
+
+timeout = 15000
+
+// Move directly and relatively.
+mouse_move(300, 220, 0.2)
+mouse_move_by(50, 0, 0.1)
+mouse_click()
+
+// Keyboard primitives for OS-level shortcuts and typing.
+hotkey("command", "l")
+type_text("https://example.com", 0.02)
+key_press("enter")
+
+wait(1)
+
+// Work with points as values.
+$center = screen_center()
+$right_of_center = offset_point($center, 50, 0)
+mouse_move_point($right_of_center, 0.2)
+
+// Find the nearest matching color relative to the current mouse position.
+// Tolerance helps when colors are anti-aliased or shaded.
+$target = nearest_color_point(255, 0, 0, 12)
+mouse_move_point($target, 0.2)
+mouse_click()
+
+// Inspect the color under the mouse.
+$here = mouse_point()
+$color = pixel_color(mouse_x(), mouse_y())
+log("Mouse at", $here, "color", $color)

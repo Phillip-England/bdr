@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>bdr Guide</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --paper: #fffdf8;
+        --ink: #1f1b16;
+        --muted: #6c6256;
+        --accent: #0e5a5a;
+        --accent-soft: #d7ece8;
+        --rule: #dfd5c6;
+        --code: #f3f0ea;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, #fff8ea 0, transparent 28rem),
+          linear-gradient(180deg, #efe6d8 0, var(--bg) 14rem, var(--bg) 100%);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 18rem minmax(0, 1fr);
+        gap: 2rem;
+        max-width: 82rem;
+        margin: 0 auto;
+        padding: 2rem;
+      }
+
+      nav {
+        position: sticky;
+        top: 1.5rem;
+        align-self: start;
+        background: rgba(255, 253, 248, 0.82);
+        border: 1px solid var(--rule);
+        border-radius: 1rem;
+        padding: 1rem 1.1rem;
+        backdrop-filter: blur(12px);
+      }
+
+      nav h1 {
+        margin: 0 0 0.3rem;
+        font-size: 1.4rem;
+      }
+
+      nav p {
+        margin: 0 0 1rem;
+        color: var(--muted);
+        font-size: 0.94rem;
+        line-height: 1.4;
+      }
+
+      nav a {
+        display: block;
+        color: var(--ink);
+        text-decoration: none;
+        padding: 0.28rem 0;
+        font-size: 0.97rem;
+      }
+
+      nav a:hover {
+        color: var(--accent);
+      }
+
+      main {
+        background: var(--paper);
+        border: 1px solid var(--rule);
+        border-radius: 1.4rem;
+        padding: 2.2rem;
+        box-shadow: 0 18px 40px rgba(31, 27, 22, 0.08);
+      }
+
+      h2, h3 {
+        line-height: 1.15;
+      }
+
+      h2 {
+        margin-top: 2.4rem;
+        padding-top: 0.4rem;
+        border-top: 1px solid var(--rule);
+        font-size: 1.8rem;
+      }
+
+      h2:first-of-type {
+        margin-top: 0;
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      h3 {
+        margin-top: 1.6rem;
+        font-size: 1.2rem;
+      }
+
+      p, li {
+        font-size: 1rem;
+        line-height: 1.65;
+      }
+
+      p.lead {
+        font-size: 1.08rem;
+        color: #302920;
+      }
+
+      code {
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        background: var(--code);
+        padding: 0.1rem 0.3rem;
+        border-radius: 0.35rem;
+      }
+
+      pre {
+        overflow-x: auto;
+        background: var(--code);
+        border: 1px solid #e8dfd2;
+        border-radius: 1rem;
+        padding: 1rem 1.1rem;
+        line-height: 1.5;
+      }
+
+      pre code {
+        background: transparent;
+        padding: 0;
+      }
+
+      .callout {
+        background: var(--accent-soft);
+        border-left: 0.35rem solid var(--accent);
+        border-radius: 0.85rem;
+        padding: 0.9rem 1rem;
+        margin: 1rem 0;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 1rem 0 1.4rem;
+      }
+
+      th, td {
+        text-align: left;
+        vertical-align: top;
+        border-bottom: 1px solid var(--rule);
+        padding: 0.7rem 0.55rem;
+      }
+
+      th {
+        font-size: 0.94rem;
+        letter-spacing: 0.02em;
+        color: var(--muted);
+      }
+
+      ul {
+        padding-left: 1.15rem;
+      }
+
+      .hero {
+        display: grid;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+
+      .hero-card {
+        background: linear-gradient(135deg, #114a4a, #31726f);
+        color: #f9f6f0;
+        border-radius: 1.25rem;
+        padding: 1.4rem;
+      }
+
+      .hero-card h2 {
+        margin: 0 0 0.6rem;
+        border: 0;
+        color: inherit;
+        padding: 0;
+      }
+
+      .hero-card p {
+        margin: 0;
+        color: #e5f0ed;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+
+        nav {
+          position: static;
+        }
+
+        main {
+          padding: 1.3rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <nav>
+        <h1>bdr</h1>
+        <p>Browser automation DSL with Playwright plus desktop mouse and keyboard primitives.</p>
+        <a href="#overview">Overview</a>
+        <a href="#install">Install</a>
+        <a href="#mental-model">Mental Model</a>
+        <a href="#syntax">Syntax</a>
+        <a href="#browser-commands">Browser Commands</a>
+        <a href="#desktop-input">Desktop Input</a>
+        <a href="#helpers">Built-in Helpers</a>
+        <a href="#functions">Functions</a>
+        <a href="#random-data">Random Data</a>
+        <a href="#project-layout">Project Layout</a>
+        <a href="#cli">CLI</a>
+        <a href="#examples">Examples</a>
+      </nav>
+      <main>
+        <section class="hero" id="overview">
+          <div class="hero-card">
+            <h2>bdr in one sentence</h2>
+            <p>bdr lets you write small text scripts that drive a real browser with Playwright and, when needed, control the real desktop with system mouse and keyboard primitives.</p>
+          </div>
+          <p class="lead">The project is designed around a constrained DSL rather than arbitrary Python. The tradeoff is deliberate: fewer moving parts in exchange for clearer scripts, easier validation, and better error messages.</p>
+          <pre><code># login.bdr
+$url = "https://example.com/login"
+
+load($url)
+#email.fill("me@example.com")
+#password.fill("hunter2")
+#submit.click()
+assert_title("Dashboard")
+screenshot("done.png")</code></pre>
+        </section>
+
+        <section id="install">
+          <h2>Install</h2>
+          <p>bdr uses <code>uv</code> for dependency management and Playwright for browser automation.</p>
+          <pre><code>make dev
+uv run bdr setup</code></pre>
+          <div class="callout">
+            Desktop input is powered by <code>pyautogui</code>. Those commands need a real GUI session and may require OS permissions. On macOS, expect Accessibility and Screen Recording prompts.
+          </div>
+        </section>
+
+        <section id="mental-model">
+          <h2>Mental Model</h2>
+          <p>There are three layers in the language:</p>
+          <ul>
+            <li>Page commands such as <code>load()</code>, <code>wait()</code>, and <code>assert_title()</code>.</li>
+            <li>Element chains such as <code>#email.fill("me@example.com")</code> or <code>.item[0].click()</code>.</li>
+            <li>Desktop commands and helper expressions for operating-system level automation.</li>
+          </ul>
+          <p>Scripts are plain text, line oriented, and intentionally simple. Variables are global to the current run. Functions are reusable blocks with positional parameters. <code>exec()</code> inlines another script into the current session.</p>
+        </section>
+
+        <section id="syntax">
+          <h2>Syntax</h2>
+          <h3>Comments</h3>
+          <pre><code>// line comment
+/* block comment */
+# legacy comment</code></pre>
+          <h3>Variables and settings</h3>
+          <pre><code>$url = "https://example.com"
+$user = "me@example.com"
+timeout = 15000
+slow = 0.3</code></pre>
+          <p>Variables require the <code>$</code> prefix. Settings do not.</p>
+          <h3>Element chains</h3>
+          <pre><code>#submit.click()
+.nav-item[0].click()
+[name="q"].fill("playwright")
+.result[2].assert_text("Expected")</code></pre>
+        </section>
+
+        <section id="browser-commands">
+          <h2>Browser Commands</h2>
+          <h3>Navigation</h3>
+          <pre><code>load("https://example.com")
+load("localhost:3000")
+load_clipboard()
+back()
+forward()
+refresh()</code></pre>
+          <h3>Page-level waiting and assertions</h3>
+          <pre><code>wait(2)
+wait_for_text("Welcome back")
+wait_until_loaded("/dashboard")
+
+assert_title("Dashboard")
+assert_url("example.com/dashboard")
+assert_page_contains("Free trial")</code></pre>
+          <h3>Browser keyboard and scrolling</h3>
+          <p><code>press()</code> sends keys through Playwright to the active page.</p>
+          <pre><code>press("Enter")
+press("Tab")
+scroll_up()
+scroll_down()</code></pre>
+          <h3>Useful element actions</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Action</th>
+                <th>Purpose</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>.click()</code></td><td>Click a single matched element.</td></tr>
+              <tr><td><code>.fill()</code></td><td>Clear then fill an input or textarea.</td></tr>
+              <tr><td><code>.type()</code></td><td>Type character by character.</td></tr>
+              <tr><td><code>.select()</code></td><td>Select a dropdown option by visible label.</td></tr>
+              <tr><td><code>.upload()</code></td><td>Attach local files to a file input.</td></tr>
+              <tr><td><code>.draw()</code></td><td>Draw on a canvas or signature pad.</td></tr>
+              <tr><td><code>.scroll_to()</code></td><td>Bring an element into view.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="desktop-input">
+          <h2>Desktop Input</h2>
+          <p>Desktop commands operate on the real mouse, keyboard, and screen. Use them for native dialogs, browser chrome, or visual workflows where DOM selectors are not enough.</p>
+          <pre><code>mouse_move(400, 300)
+mouse_move(400, 300, 0.2)
+mouse_move_by(50, 0)
+mouse_move_point("640,360")
+
+mouse_click()
+mouse_click("right")
+mouse_click("left", 2)
+
+mouse_drag_to(900, 600, 0.4)
+mouse_drag_by(120, 0, 0.2)
+mouse_scroll(-300)
+
+key_press("enter")
+key_down("shift")
+key_up("shift")
+hotkey("command", "l")
+type_text("https://example.com")
+type_text("slow text", 0.03)</code></pre>
+          <div class="callout">
+            <strong>Important:</strong> <code>press()</code> is browser-level Playwright input. <code>key_press()</code> is operating-system level input. They are intentionally separate because they affect different targets.
+          </div>
+        </section>
+
+        <section id="helpers">
+          <h2>Built-in Helpers</h2>
+          <p>Helpers return values that can be assigned to variables or passed into commands. Points are represented as <code>"x,y"</code>. Colors are represented as <code>"r,g,b"</code>.</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Helper</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>point(x, y)</code></td><td>Build a point string.</td></tr>
+              <tr><td><code>offset_point(point, dx, dy)</code></td><td>Apply a relative offset to a point.</td></tr>
+              <tr><td><code>mouse_point()</code></td><td>Current mouse position.</td></tr>
+              <tr><td><code>mouse_x()</code> / <code>mouse_y()</code></td><td>Current mouse coordinates.</td></tr>
+              <tr><td><code>screen_width()</code> / <code>screen_height()</code></td><td>Current screen dimensions.</td></tr>
+              <tr><td><code>screen_size()</code></td><td>Screen size as a point string.</td></tr>
+              <tr><td><code>screen_center()</code></td><td>Center point of the current screen.</td></tr>
+              <tr><td><code>pixel_color(x, y)</code></td><td>RGB value for a pixel.</td></tr>
+              <tr><td><code>nearest_color_point(r, g, b, tolerance?, radius?)</code></td><td>Closest matching pixel from the current mouse position.</td></tr>
+              <tr><td><code>nearest_color_point_from(x, y, r, g, b, tolerance?, radius?)</code></td><td>Closest matching pixel from an explicit origin.</td></tr>
+            </tbody>
+          </table>
+          <h3>Examples</h3>
+          <pre><code>$center = screen_center()
+$right = offset_point($center, 50, 0)
+mouse_move_point($right, 0.2)
+
+$color = pixel_color(mouse_x(), mouse_y())
+log("mouse color", $color)
+
+$target = nearest_color_point(255, 0, 0, 12)
+mouse_move_point($target, 0.2)
+mouse_click()</code></pre>
+          <p><code>nearest_color_point(255, 0, 0, 12)</code> means “find the closest pixel to the current cursor whose RGB value is close to pure red, allowing up to 12 points of difference per channel.”</p>
+        </section>
+
+        <section id="functions">
+          <h2>Functions</h2>
+          <p>Functions are reusable command blocks. They take positional arguments and do not return values.</p>
+          <pre><code>func login($user, $pass) {
+  #email.fill($user)
+  #password.fill($pass)
+  #submit.click()
+}
+
+load("https://example.com/login")
+login("me@example.com", "hunter2")</code></pre>
+          <p>Function bodies can use browser commands, element chains, and desktop commands. Parameter bindings are local to the function call.</p>
+        </section>
+
+        <section id="random-data">
+          <h2>Random Data</h2>
+          <p>bdr ships with <code>random_*</code> generators for common test-data needs.</p>
+          <pre><code>$email = random_email()
+$pass = random_password(16)
+$phone = random_phone()
+$country = random_country()</code></pre>
+          <p>These work in assignments and direct command arguments.</p>
+        </section>
+
+        <section id="project-layout">
+          <h2>Project Layout</h2>
+          <pre><code>examples/
+  login.bdr
+  functions.bdr
+  desktop-input.bdr
+
+bdr/
+  cli.py
+  lexer.py
+  interpreter.py
+  runner.py
+  input.py</code></pre>
+          <p><code>lexer.py</code> tokenizes the DSL. <code>runner.py</code> validates and launches scripts. <code>interpreter.py</code> executes commands. <code>input.py</code> contains the desktop-input adapter and screen helper logic.</p>
+        </section>
+
+        <section id="cli">
+          <h2>CLI</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Command</th>
+                <th>Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><code>bdr run script.bdr</code></td><td>Execute a script in a real browser.</td></tr>
+              <tr><td><code>bdr check script.bdr</code></td><td>Validate syntax and command usage without launching a browser.</td></tr>
+              <tr><td><code>bdr new script.bdr</code></td><td>Create a starter script.</td></tr>
+              <tr><td><code>bdr docs</code></td><td>Open the browser docs and launch scripts already in the main zone.</td></tr>
+              <tr><td><code>bdr teleport script.bdr</code></td><td>Copy a script into the managed main-zone library.</td></tr>
+              <tr><td><code>bdr setup</code></td><td>Install Playwright browsers.</td></tr>
+              <tr><td><code>bdr seed</code></td><td>Write the project seed file.</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="examples">
+          <h2>Examples</h2>
+          <h3>DOM-first browser flow</h3>
+          <pre><code>load("https://www.wikipedia.org")
+[name="search"].fill("Playwright")
+press("Enter")
+assert_title("Playwright")</code></pre>
+          <h3>Desktop-first visual flow</h3>
+          <pre><code>$target = nearest_color_point(255, 0, 0, 12)
+mouse_move_point($target, 0.2)
+mouse_click()
+mouse_move_by(50, 0, 0.1)</code></pre>
+          <h3>Mixed workflow</h3>
+          <pre><code>load("https://example.com")
+#upload.click()
+mouse_move(700, 480)
+mouse_click()
+type_text("/Users/me/Desktop/file.pdf")
+key_press("enter")</code></pre>
+          <p>The mixed style is the main reason the project now has both Playwright-native commands and desktop-native commands. Many real automations need both.</p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

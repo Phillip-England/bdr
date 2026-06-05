@@ -15,6 +15,15 @@ from .interpreter import BdrError, DEFAULT_SCREENSHOT_DIR
 from .runner import check_script, run_script
 from .seed import extract_seed_version, render_seed
 from .status import DEFAULT_STATUS_FILE
+from .store import (
+    ScriptNameError,
+    ensure_script_library_dir,
+    import_script,
+    normalize_script_name,
+    script_library_dir,
+    script_path,
+)
+from .webapp import serve_docs_app
 
 
 def _fail(heading: str, body: str) -> None:
@@ -37,6 +46,8 @@ def main() -> None:
       bdr check script.bdr       Validate without running a browser
       bdr new script.bdr         Create a new script from a template
       bdr seed                   Plant/update an LLM seed file in this project
+      bdr docs                   Open the local docs + script launcher web app
+      bdr teleport script.bdr    Move a script into the main zone library
       bdr extract URL SELECTOR   Generate a .el selector file from a live page
       bdr setup                  Install Playwright browsers
       bdr screenshots            List captured screenshots
@@ -157,6 +168,32 @@ log("Script complete")
     click.echo(f"  created: {dest}")
 
 
+def _resolve_managed_name(initial_name: str, *, prompt_on_conflict: bool) -> str:
+    """Resolve a managed script name, prompting when interactive if needed."""
+    candidate = initial_name
+    while True:
+        try:
+            normalized = normalize_script_name(candidate)
+        except ScriptNameError as exc:
+            if not prompt_on_conflict:
+                raise click.ClickException(str(exc)) from exc
+            click.echo(f"  invalid name: {exc}", err=True)
+            candidate = click.prompt("  Choose a different script name")
+            continue
+
+        if script_path(normalized).exists():
+            if not prompt_on_conflict:
+                raise click.ClickException(
+                    f"Managed script already exists: {normalized}.bdr\n"
+                    "  Choose a different name with --name."
+                )
+            click.echo(f"  name already taken: {normalized}.bdr", err=True)
+            candidate = click.prompt("  Choose a different script name")
+            continue
+
+        return normalized
+
+
 # ---------------------------------------------------------------------------
 # seed
 # ---------------------------------------------------------------------------
@@ -207,6 +244,66 @@ def seed(seed_path: str, force: bool) -> None:
     else:
         click.echo(f"  updated seed: {target}")
         click.echo(f"  version: unknown -> {__version__}")
+
+
+# ---------------------------------------------------------------------------
+# docs
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option("--host", default="127.0.0.1", show_default=True,
+              help="Host interface to bind the local web app to.")
+@click.option("--port", default=0, show_default=True, type=int,
+              help="Port to bind. Use 0 to choose a free port automatically.")
+@click.option("--no-open", is_flag=True, default=False,
+              help="Start the server without opening a browser.")
+def docs(host: str, port: int, no_open: bool) -> None:
+    """Open the local docs and script launcher web app."""
+    ensure_script_library_dir()
+    serve_docs_app(host=host, port=port, open_browser=not no_open)
+
+
+# ---------------------------------------------------------------------------
+# teleport
+# ---------------------------------------------------------------------------
+
+@main.command(name="teleport")
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=pathlib.Path))
+@click.option("--name", default=None, metavar="SCRIPT_NAME",
+              help="Script name to use inside the main zone. Defaults to the source filename.")
+def teleport(source: pathlib.Path, name: str | None) -> None:
+    """Teleport an external .bdr file into the main zone library."""
+    if source.suffix.lower() != ".bdr":
+        raise click.ClickException("Only .bdr files can be teleported into the main zone.")
+
+    ensure_script_library_dir()
+    prompt_on_conflict = sys.stdin.isatty() and sys.stdout.isatty()
+    requested_name = name or source.stem
+    managed_name = _resolve_managed_name(requested_name, prompt_on_conflict=prompt_on_conflict)
+    if source.resolve() == script_path(managed_name).resolve():
+        raise click.ClickException("That script is already in the managed library.")
+    target = import_script(source.resolve(), managed_name)
+    errors = check_script(target)
+
+    click.echo(f"  imported: {source}")
+    click.echo(f"  stored:   {target}")
+    click.echo(f"  main zone: {script_library_dir()}")
+    if errors:
+        click.echo("  validation:")
+        for err in errors:
+            click.echo(f"    - {err}")
+    else:
+        click.echo("  validation: ok")
+    click.echo("  Open with: bdr docs")
+
+
+@main.command(name="sort", hidden=True)
+@click.argument("source", type=click.Path(exists=True, dir_okay=False, path_type=pathlib.Path))
+@click.option("--name", default=None, metavar="SCRIPT_NAME",
+              help="Managed script name to use inside the library. Defaults to the source filename.")
+def sort_alias(source: pathlib.Path, name: str | None) -> None:
+    """Backward-compatible alias for teleport."""
+    teleport.callback(source, name)
 
 
 # ---------------------------------------------------------------------------

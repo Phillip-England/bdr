@@ -53,6 +53,19 @@ make dev
 
 `make dev` runs `uv sync` and `bdr setup`. Use `uv run bdr` to run the local version while developing.
 
+Desktop mouse and keyboard commands use `pyautogui`. They need a real GUI session and may require accessibility or screen-recording permissions, especially on macOS.
+
+### Managed script library
+
+bdr can also keep a named local library of reusable `.bdr` scripts.
+
+- `bdr docs` starts a local web app for browsing the project docs and launching scripts already in the main zone.
+- `bdr teleport ./some-script.bdr` copies an external script into the managed library so it appears in the web app.
+- The managed library lives in an OS-specific data directory:
+  - macOS: `~/Library/Application Support/bdr/scripts`
+  - Linux: `${XDG_DATA_HOME:-~/.local/share}/bdr/scripts`
+  - Windows: `%APPDATA%\\bdr\\scripts`
+
 ### Build a standalone binary
 
 ```bash
@@ -430,6 +443,7 @@ All element assertions auto-wait for the element to appear before checking.
 
 ```
 wait(2)                              # sleep 2 seconds unconditionally
+wait_visible("#modal")               # wait for a CSS selector to be visible
 wait_for_text("Welcome back")        # wait for text to appear anywhere on page
 wait_until_loaded("/dashboard")      # wait until URL contains path and page is loaded
 wait_until_loaded("https://example.com/dashboard")
@@ -453,11 +467,86 @@ assert_page_contains("Free trial")
 
 ### Keyboard
 
+`press()` sends a key through the active Playwright page.
+
 ```
 press("Enter")
 press("Tab")
 press("Escape")
 ```
+
+---
+
+### Desktop mouse and keyboard
+
+Use these when you need to drive the real desktop instead of a DOM element or the Playwright page.
+
+```
+mouse_move(400, 300)               # absolute screen position
+mouse_move(400, 300, 0.2)          # move over 0.2 seconds
+mouse_move_by(50, 0)               # move 50 pixels right
+mouse_move_point("640,360")        # move to a stored point
+
+mouse_click()                      # left click
+mouse_click("right")               # right click
+mouse_click("left", 2)             # double click
+mouse_down()
+mouse_up()
+
+mouse_drag_to(900, 600, 0.4)       # drag to an absolute point
+mouse_drag_by(120, 0, 0.2)         # drag relative to the current position
+mouse_scroll(-300)                 # desktop wheel scroll
+
+key_press("enter")                 # OS-level key press
+key_down("shift")
+key_up("shift")
+hotkey("command", "l")             # browser or OS shortcut
+type_text("https://example.com")
+type_text("slow text", 0.03)       # delay between characters
+```
+
+These commands act on whatever app currently has focus.
+
+- They require a visible desktop session.
+- On macOS you will usually need Accessibility and Screen Recording permissions.
+- `press()` is still the page-level Playwright shortcut command. Use `key_press()` when you mean the real keyboard.
+
+#### Desktop helper expressions
+
+Desktop helpers return plain strings that you can assign to variables and reuse.
+
+| Helper | Returns |
+|---|---|
+| `point(x, y)` | `"x,y"` |
+| `offset_point(point, dx, dy)` | `"x,y"` with a relative offset |
+| `mouse_point()` | current mouse position as `"x,y"` |
+| `mouse_x()` / `mouse_y()` | current mouse coordinates |
+| `screen_width()` / `screen_height()` | current screen dimensions |
+| `screen_size()` | `"width,height"` |
+| `screen_center()` | center point as `"x,y"` |
+| `pixel_color(x, y)` | `"r,g,b"` for a screen pixel |
+| `nearest_color_point(r, g, b, tolerance?, radius?)` | nearest matching screen pixel |
+| `nearest_color_point_from(x, y, r, g, b, tolerance?, radius?)` | nearest matching pixel from an explicit origin |
+
+Examples:
+
+```
+$origin = mouse_point()
+$right = offset_point($origin, 50, 0)
+mouse_move_point($right)
+
+$color = pixel_color(mouse_x(), mouse_y())
+log("mouse color", $color)
+
+$target = nearest_color_point(255, 0, 0, 12)
+mouse_move_point($target, 0.2)
+mouse_click()
+
+$local_target = nearest_color_point_from(800, 450, 255, 0, 0, 12, 300)
+mouse_move_point($local_target)
+```
+
+`nearest_color_point()` searches from the current mouse position. Tolerance is per RGB channel, so `12` means each channel can differ by up to 12 from the requested color. Radius is optional and limits the search area.
 
 ---
 
@@ -929,6 +1018,19 @@ login("me@example.com", "hunter2")
 search_and_assert("playwright", "Playwright")
 ```
 
+### Desktop input
+
+```
+// examples/desktop-input.bdr
+$center = screen_center()
+$right = offset_point($center, 50, 0)
+mouse_move_point($right, 0.2)
+
+$target = nearest_color_point(255, 0, 0, 12)
+mouse_move_point($target, 0.2)
+mouse_click()
+```
+
 ### Working with lists
 
 ```
@@ -1074,6 +1176,33 @@ Create a new script from a starter template.
 ```bash
 bdr new my-script.bdr
 ```
+
+### `bdr docs`
+
+Open the local web app for docs plus the main-zone script launcher.
+
+```bash
+bdr docs
+bdr docs --no-open
+bdr docs --port 8123
+```
+
+From the app you can:
+
+- read the project docs in the browser
+- browse scripts that are already in the managed library
+- run them directly from the browser UI
+
+### `bdr teleport`
+
+Teleport an external `.bdr` file into the managed script library.
+
+```bash
+bdr teleport ./flows/login.bdr
+bdr teleport ./flows/login.bdr --name smoke-login
+```
+
+If the name is invalid or already taken, `bdr teleport` stops with an error. In an interactive terminal it will prompt you to choose a different name.
 
 ### `bdr seed`
 
