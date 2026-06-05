@@ -59,8 +59,9 @@ def main() -> None:
 # run
 # ---------------------------------------------------------------------------
 
-@main.command()
+@main.command(context_settings={"ignore_unknown_options": True})
 @click.argument("script", metavar="SCRIPT.bdr")
+@click.argument("script_args", nargs=-1, type=click.UNPROCESSED)
 @click.option("--browser", default="chromium", show_default=True,
               type=click.Choice(["chromium", "firefox", "webkit"]),
               help="Browser to use.")
@@ -78,10 +79,12 @@ def main() -> None:
               help=f"Where to write the live status file. Default: {DEFAULT_STATUS_FILE}")
 def run(script: str, browser: str, headless: bool, slow: float,
         timeout: int, screenshot_dir: str | None,
-        no_status: bool, status_file: str | None) -> None:
+        no_status: bool, status_file: str | None,
+        script_args: tuple[str, ...]) -> None:
     """Execute a .bdr script."""
     sdir = pathlib.Path(screenshot_dir).resolve() if screenshot_dir else None
     sf = pathlib.Path(status_file).resolve() if status_file else None
+    stdin_text = "" if sys.stdin.isatty() else sys.stdin.read()
     try:
         run_script(
             script,
@@ -90,6 +93,8 @@ def run(script: str, browser: str, headless: bool, slow: float,
             slow_mo=slow,
             timeout=timeout,
             screenshot_dir=sdir,
+            cli_args=list(script_args),
+            stdin_text=stdin_text,
             status_file=sf,
             no_status=no_status,
         )

@@ -42,6 +42,8 @@ Scripts are plain text and primarily use CSS selector chains for actions/asserti
 ## CLI Quick Use
 
 - `bdr run script.bdr`
+- `bdr run script.bdr -- --name value` (extra args available in scripts)
+- `printf "query\\n" | bdr run script.bdr` (piped stdin available in scripts)
 - `bdr check script.bdr`
 - `bdr new script.bdr`
 - `bdr extract URL SELECTOR`
@@ -114,6 +116,29 @@ Use `exec(...)` to load shared function libraries before first call:
 exec("./shared/helpers.bdr")
 login(env("EMAIL"), env("PASSWORD"))
 ```
+
+## Runtime Input
+
+Use helper expressions to read command-line args and piped stdin:
+
+```bdr
+$url = arg("url", "https://example.com")
+$query = arg("query", stdin_line(0, "bdr"))
+
+load($url)
+[name="q"].fill($query)
+log("raw stdin:", stdin())
+```
+
+Shell examples:
+
+```bash
+bdr run search.bdr -- --url https://example.com --query playwright
+printf "playwright\\n" | bdr run search.bdr
+```
+
+`arg(0)` reads a positional arg, `arg("name")` reads `--name value` or
+`--name=value`, and `arg(..., "default")` supplies a fallback.
 
 ## File Upload
 

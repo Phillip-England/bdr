@@ -1,0 +1,13 @@
+// runtime-input.bdr — read CLI args and piped stdin
+//
+// Try:
+//   bdr run examples/runtime-input.bdr -- --site https://google.com --query playwright
+//   printf "playwright docs\n" | bdr run examples/runtime-input.bdr
+
+$site = arg("site", "https://google.com")
+$query = arg("query", stdin_line(0, "bdr"))
+
+load($site)
+[name="q"].fill($query)
+
+log("Search query:", $query)

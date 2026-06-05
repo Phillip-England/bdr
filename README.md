@@ -1057,6 +1057,33 @@ load("https://example.com/login")
 #submit.click()
 ```
 
+### CLI args and piped input
+
+Extra values after the script path are available with `arg(...)`. Piped stdin is
+available with `stdin()` or `stdin_line(...)`.
+
+```bash
+bdr run search.bdr -- --query playwright --site https://example.com
+printf "playwright docs\n" | bdr run search.bdr
+```
+
+```bdr
+$site = arg("site", "https://google.com")
+$query = arg("query", stdin_line(0, "bdr"))
+
+load($site)
+[name="q"].fill($query)
+```
+
+Use a zero-based index for positional args:
+
+```bdr
+$first = arg(0)
+$fallback = arg(1, "default value")
+log("args:", arg_count(), $first, $fallback)
+log("piped:", stdin())
+```
+
 ---
 
 ## Live status file

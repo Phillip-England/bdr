@@ -214,6 +214,8 @@ def run_script(
     slow_mo: float = 0.0,
     timeout: int = 30_000,
     screenshot_dir: pathlib.Path | None = None,
+    cli_args: list[str] | None = None,
+    stdin_text: str = "",
     status_file: pathlib.Path | None = None,
     no_status: bool = False,
 ) -> None:
@@ -243,6 +245,10 @@ def run_script(
     print(f"  screenshots → {effective_screenshot_dir}")
     if env_vars:
         print(f"  .env → {len(env_vars)} variable(s) loaded")
+    if cli_args:
+        print(f"  args      → {len(cli_args)} value(s)")
+    if stdin_text:
+        print(f"  stdin     → {len(stdin_text.splitlines())} line(s)")
     if not no_status:
         print(f"  status     → {tracker._path}")
 
@@ -279,6 +285,8 @@ def run_script(
                 base_dir=script_path.parent,
                 screenshot_dir=effective_screenshot_dir,
                 env_vars=env_vars,
+                cli_args=cli_args,
+                stdin_text=stdin_text,
                 status_tracker=tracker,
             )
             interpreter.run(lines)

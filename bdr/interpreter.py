@@ -198,6 +198,8 @@ class Interpreter:
         base_dir: pathlib.Path | None = None,
         screenshot_dir: pathlib.Path | None = None,
         env_vars: dict[str, str] | None = None,
+        cli_args: list[str] | None = None,
+        stdin_text: str = "",
         status_tracker: StatusTracker | None = None,
     ) -> None:
         self._page = page
@@ -206,6 +208,8 @@ class Interpreter:
         self._variables: dict[str, str] = {}
         self._functions: dict[str, tuple[list[str], list]] = {}
         self._env: dict[str, str] = env_vars or {}
+        self._cli_args: list[str] = cli_args or []
+        self._stdin_text: str = stdin_text
         self._base_dir: pathlib.Path = (base_dir or pathlib.Path.cwd()).resolve()
         self._exec_stack: list[pathlib.Path] = []
         self._screenshot_dir: pathlib.Path = (
@@ -380,7 +384,48 @@ class Interpreter:
             return None
 
         name, raw_args = parsed
-        args = [self._resolve(lineno, arg) for arg in raw_args]
+        args = [self._strip_literal_quotes(self._resolve(lineno, arg)) for arg in raw_args]
+
+        if name == "arg":
+            if len(args) not in (1, 2):
+                raise DesktopInputError(
+                    f"arg() expects a positional index or option name, with optional default; got {len(args)} argument(s)"
+                )
+            return self._runtime_arg(lineno, args[0], args[1] if len(args) == 2 else None)
+
+        if name == "arg_count":
+            if args:
+                raise DesktopInputError(
+                    f"arg_count() does not take arguments, got {len(args)}"
+                )
+            return str(len(self._cli_args))
+
+        if name == "stdin":
+            if args:
+                raise DesktopInputError(
+                    f"stdin() does not take arguments, got {len(args)}"
+                )
+            return self._stdin_text
+
+        if name == "stdin_line":
+            if len(args) not in (1, 2):
+                raise DesktopInputError(
+                    f"stdin_line() expects a zero-based line index, with optional default; got {len(args)} argument(s)"
+                )
+            try:
+                index = int(args[0])
+            except ValueError as exc:
+                raise DesktopInputError(
+                    f"stdin_line() index must be a number, got '{args[0]}'"
+                ) from exc
+            lines = self._stdin_text.splitlines()
+            if 0 <= index < len(lines):
+                return lines[index]
+            if len(args) == 2:
+                return args[1]
+            raise DesktopInputError(
+                f"stdin_line({index}) is not available; stdin has {len(lines)} line(s)"
+            )
 
         if name == "point":
             if len(args) != 2:
@@ -499,6 +544,51 @@ class Interpreter:
             )
 
         return None
+
+    def _runtime_arg(self, lineno: int, key: str, default: str | None) -> str:
+        try:
+            index = int(key)
+        except ValueError:
+            value = self._named_cli_arg(key)
+            if value is not None:
+                return value
+            if default is not None:
+                return default
+            hint_name = key.lstrip("-")
+            raise BdrError(
+                f"Line {lineno}: cli arg '{key}' is not set\n"
+                f"  Hint: Pass it after the script path, e.g. bdr run script.bdr -- --{hint_name} value."
+            )
+
+        if 0 <= index < len(self._cli_args):
+            return self._cli_args[index]
+        if default is not None:
+            return default
+        raise BdrError(
+            f"Line {lineno}: cli arg at index {index} is not set\n"
+            f"  Hint: Pass extra args after the script path, e.g. bdr run script.bdr value."
+        )
+
+    def _named_cli_arg(self, key: str) -> str | None:
+        wanted = key.lstrip("-")
+        i = 0
+        while i < len(self._cli_args):
+            token = self._cli_args[i]
+            if token.startswith("--") and "=" in token:
+                name, _, value = token[2:].partition("=")
+                if name == wanted:
+                    return value
+            elif token.startswith("-") and token.lstrip("-") == wanted:
+                if i + 1 < len(self._cli_args) and not self._cli_args[i + 1].startswith("-"):
+                    return self._cli_args[i + 1]
+                return "true"
+            i += 1
+        return None
+
+    def _strip_literal_quotes(self, value: str) -> str:
+        if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+            return value[1:-1]
+        return value
 
     # ------------------------------------------------------------------
     # Assignment  ($name = value  /  timeout = ms)
